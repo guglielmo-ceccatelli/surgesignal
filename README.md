@@ -26,6 +26,14 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m workers.alerter           # Telegram alerts (needs config.local.yaml)
 ```
 
+Run as background services (macOS; restart on crash, start at login, watchdog every 5 min):
+
+```bash
+.venv/bin/python -m scripts.launchd install     # or: status | uninstall
+```
+
+Logs go to `data/logs/`. Nothing runs while the Mac sleeps: `caffeinate -s` keeps it awake on the charger.
+
 Alerts setup: copy `config.example.yaml` to `config.local.yaml`, add a bot token from @BotFather, start the alerter, send `/whoami` to your bot and paste the chat id back in as `dispatcher_chat_id`, restart, then `/area Clapham Common 5` and `/idle 6`. Supabase is optional: without it, state lives in `data/state/`; with it, run `supabase/schema.sql` once.
 
 Optional: `TFL_APP_KEY` raises TfL's anonymous rate limit.

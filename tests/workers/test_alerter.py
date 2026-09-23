@@ -100,12 +100,15 @@ def test_errors_ping_builder_at_most_hourly(cfg, store, tg, net, params):
 def test_run_loop_ticks_and_handles_updates(cfg, store, tg, net, params):
     a = alerter(cfg, store, tg, net, params, Feed(status()))
     tg.pending_updates = [{"update_id": 41, "message": {"chat": {"id": DISPATCHER}, "text": "/idle 4"}}]
-    run_forever(a, Bot(cfg, store, tg, net), tg, store, iterations=1)
+    run_forever(a, Bot(cfg, store, tg, net), tg, store, iterations=1, heartbeat_path=store.root / "hb.json")
     assert store.get_state("settings")["idle_drivers"] == 4
     assert store.get_state("telegram") == {"offset": 42}
+    hb = json.loads((store.root / "hb.json").read_text())
+    assert hb["loop"] and hb["tick_ok"]
 
 
 def test_run_loop_survives_a_failing_tick(cfg, store, tg, net, params):
     a = alerter(cfg, store, tg, net, params, Feed(b"not json"))
-    run_forever(a, Bot(cfg, store, tg, net), tg, store, iterations=1)  # must not raise
+    run_forever(a, Bot(cfg, store, tg, net), tg, store, iterations=1, heartbeat_path=store.root / "hb.json")  # must not raise
     assert any("alerter error" in m["text"] for m in tg.sent if m["chat"] == BUILDER)
+    assert json.loads((store.root / "hb.json").read_text())["tick_ok"] is None  # alive, but ticks failing

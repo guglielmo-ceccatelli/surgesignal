@@ -302,7 +302,7 @@ Launch A tonight, B in parallel. Merge, then C, then D. Conflict risk: C and D b
   - **Telegram via its HTTP API directly** (no python-telegram-bot): ~80 lines, no dependency, fully testable with a fake.
   - **State as named JSON documents** (`state` table: alerts, tracker, settings, telegram offset, problems) rather than a dedicated `alerts` table; plus `checkins` and `disruptions_current`, with RLS and two public views for the console. Local JSON files are used until Supabase is configured.
   - **Interim uniform baseline** (every station 1.0) until the TfL entry/exit baseline lands (T9): top stations tie-break by name until then.
-- [ ] **T6 (P1, human: ~4h / CC: ~20min)**: split logger/alerter processes under launchd/systemd + heartbeat ping. Verify: kill -9 the logger → restarts; stop it 10 min → ping.
+- [x] **T6 (P1, human: ~4h / CC: ~20min)**: split logger/alerter processes under launchd + heartbeat ping. Done Sep 23: `scripts/launchd.py` (install/uninstall/status; KeepAlive, start at login), loop heartbeats in both workers, `workers/watchdog.py` every 5 min (restarts a hung process, pings the builder once per problem plus an all-clear, skips a round after Mac sleep). Verified live: `kill -9` on the logger → back in <30 s; watchdog restart command → alerter back in 4 s. 10 new tests.
 - [ ] **T7 (P1, human: ~4h / CC: ~20min)**: replay E2E tests + GitHub Actions CI. Verify: CI green.
 - [ ] **T8 (P1, human: ~1h / CC: ~10min)**: Sep 30 event count; expand modes if <~1/week.
 - [ ] **T9 (P2, human: ~4h / CC: ~20min)**: Open-Meteo weather + events CSV into `mult`.

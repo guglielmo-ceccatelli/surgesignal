@@ -148,9 +148,18 @@ def make_store(cfg: Config) -> Store:
     return FileStore(DATA_DIR / "state")
 
 
-def run_forever(alerter: Alerter, bot: Bot, tg: Telegram, store: Store, iterations: int | None = None) -> None:
+def write_heartbeat(path: Path, loop: datetime, tick_ok: datetime | None) -> None:
+    """{"loop": last loop pass (process alive), "tick_ok": last successful tick}; read by the watchdog."""
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({"loop": loop.isoformat(), "tick_ok": tick_ok.isoformat() if tick_ok else None}))
+    tmp.replace(path)
+
+
+def run_forever(alerter: Alerter, bot: Bot, tg: Telegram, store: Store, iterations: int | None = None,
+                heartbeat_path: Path = DATA_DIR / "alerter_heartbeat.json") -> None:
     """Main loop. `iterations` bounds it for tests; None runs until interrupted."""
     last_tick = float("-inf")
+    tick_ok: datetime | None = None
     while iterations is None or iterations > 0:
         if iterations is not None:
             iterations -= 1
@@ -160,8 +169,10 @@ def run_forever(alerter: Alerter, bot: Bot, tg: Telegram, store: Store, iteratio
             try:
                 for a in alerter.tick(now):
                     log(f"sent {type(a).__name__}")
+                tick_ok = now
             except Exception as exc:  # keep running; report, retry next tick
                 alerter.report_error(exc, now)
+        write_heartbeat(heartbeat_path, datetime.now(timezone.utc), tick_ok)
         try:
             offset = (store.get_state("telegram") or {}).get("offset")
             for update in tg.updates(offset, POLL_SECONDS):

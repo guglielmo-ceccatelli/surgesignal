@@ -8,7 +8,7 @@ poll is logged and retried on the next tick.
       for feed in FEEDS whose interval has elapsed:
           fetch ──ok──► RawLog.save_if_changed ──► heartbeat[feed] = now
                 └─err─► log to stderr, heartbeat unchanged (staleness is visible)
-      write <data>/heartbeat.json
+      write <data>/heartbeat.json  {"loop": now, "feeds": {feed: last success}}  (read by workers/watchdog.py)
 
 Usage:
     python -m workers.logger                 # run forever, data in Surge/data/raw
@@ -78,9 +78,10 @@ class Logger:
         self.logs = {f.name: RawLog(self.data_dir / "raw", f.name) for f in feeds}
         self.last_attempt: dict[str, float] = {}
         self.heartbeat_path = self.data_dir / "heartbeat.json"
-        self.heartbeat: dict[str, str] = (
-            json.loads(self.heartbeat_path.read_text()) if self.heartbeat_path.exists() else {}
-        )
+        self.heartbeat: dict[str, str] = {}  # feed -> last successful poll (UTC ISO)
+        if self.heartbeat_path.exists():
+            saved = json.loads(self.heartbeat_path.read_text())
+            self.heartbeat = saved.get("feeds", {}) if "feeds" in saved else saved  # older flat format
 
     def poll_due(self, now_monotonic: float, now_utc: datetime) -> None:
         """Poll every feed whose interval has elapsed. Never raises for a single feed's failure."""
@@ -90,7 +91,7 @@ class Logger:
                 continue
             self.last_attempt[feed.name] = now_monotonic
             self._poll(feed, now_utc)
-        self._write_heartbeat()
+        self._write_heartbeat(now_utc)
 
     def _poll(self, feed: Feed, now_utc: datetime) -> None:
         try:
@@ -103,9 +104,10 @@ class Logger:
         if saved:
             log(f"{feed.name}: saved {saved.relative_to(self.data_dir)}")
 
-    def _write_heartbeat(self) -> None:
+    def _write_heartbeat(self, now_utc: datetime) -> None:
+        """{"loop": last tick (process alive), "feeds": {feed: last success}}; read by the watchdog."""
         tmp = self.heartbeat_path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(self.heartbeat, indent=2, sort_keys=True))
+        tmp.write_text(json.dumps({"loop": now_utc.isoformat(), "feeds": self.heartbeat}, indent=2, sort_keys=True))
         os.replace(tmp, self.heartbeat_path)
 
 
