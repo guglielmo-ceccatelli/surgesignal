@@ -1,8 +1,8 @@
 """Telegram commands and buttons. Only allowlisted chats are answered (eng review 2A).
 
     anyone       /whoami                  → your chat id (so it can be added to config)
-    dispatcher   /start /help /settings /status
-                 /idle N   /area <station|postcode> [km]   /quiet HH:MM-HH:MM|off
+    dispatcher   /start /help /settings /status /week
+                 /idle N   /area <station|postcode> [km]   /quiet HH:MM-HH:MM|off   /lookahead HH:MM|off
     dispatcher,  /checkin → buttons: stations of the current alert
     driver                  → buttons: busy / normal / dead → saved (hashed driver id)
 """
@@ -10,12 +10,21 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
 from surgesignal.alerts.format import london_hhmm
 from surgesignal.alerts.lifecycle import AlertRecord
-from surgesignal.alerts.settings import Settings, SettingsError, postcodes_io, set_area, set_idle, set_quiet
+from surgesignal.alerts.settings import (
+    Settings,
+    SettingsError,
+    postcodes_io,
+    set_area,
+    set_idle,
+    set_lookahead,
+    set_quiet,
+)
 from surgesignal.alerts.telegram import Telegram, keyboard
 from surgesignal.config import Config
 from surgesignal.engine.explain import SEVERITY_WORDS
@@ -30,6 +39,8 @@ HELP_DISPATCHER = """SurgeSignal alerts you when a Tube or Elizabeth line disrup
 /area Clapham Common 5 — centre and radius (km), or a postcode: /area SW4 7AA 3
 /idle 6 — cars usually free (for "move N cars")
 /quiet 23:00-06:00 — no alerts overnight (or /quiet off)
+/week — planned closures, strikes and big events in the next 7 days
+/lookahead 18:00 — when the daily look-ahead arrives (or /lookahead off)
 /settings — show settings
 /status — what's happening now
 /checkin — report how busy a station really is"""
@@ -42,9 +53,11 @@ def driver_hash(salt: str, chat_id: int) -> str:
 
 
 class Bot:
-    def __init__(self, cfg: Config, store: Store, tg: Telegram, network: Network, postcode_lookup=postcodes_io) -> None:
+    def __init__(self, cfg: Config, store: Store, tg: Telegram, network: Network, postcode_lookup=postcodes_io,
+                 lookahead: Callable[[datetime], str] | None = None) -> None:
         self.cfg, self.store, self.tg, self.network = cfg, store, tg, network
         self.postcode_lookup = postcode_lookup
+        self.lookahead = lookahead  # Alerter.compose_lookahead in production
 
     # ---- entry point ----------------------------------------------------------------
 
@@ -75,7 +88,9 @@ class Bot:
             self.tg.send(chat, self._settings().describe())
         elif cmd == "/status":
             self.tg.send(chat, self._status(now))
-        elif cmd in ("/idle", "/area", "/quiet"):
+        elif cmd == "/week":
+            self.tg.send(chat, self._week(now))
+        elif cmd in ("/idle", "/area", "/quiet", "/lookahead"):
             self._update_settings(chat, cmd, arg)
         else:
             self.tg.send(chat, HELP_DISPATCHER)
@@ -92,6 +107,8 @@ class Bot:
                 s = set_idle(s, arg)
             elif cmd == "/area":
                 s = set_area(s, arg, self.network, self.postcode_lookup)
+            elif cmd == "/lookahead":
+                s = set_lookahead(s, arg)
             else:
                 s = set_quiet(s, arg)
         except SettingsError as exc:
@@ -99,6 +116,16 @@ class Bot:
             return
         self.store.put_state("settings", s.to_dict())
         self.tg.send(chat, "Saved.\n" + s.describe())
+
+    def _week(self, now: datetime) -> str:
+        if not self._settings().has_area:
+            return "Set your area first: /area Clapham Common 5"
+        if self.lookahead is None:
+            return "The look-ahead isn't available right now."
+        try:
+            return self.lookahead(now)
+        except Exception as exc:  # TfL unreachable etc.: say so rather than failing silently
+            return f"Couldn't build the look-ahead right now ({type(exc).__name__}). Try again in a few minutes."
 
     # ---- status ---------------------------------------------------------------------
 

@@ -1,7 +1,8 @@
 """End to end: TfL status JSON → alerter → fake Telegram, with real parser, tracker, engine, lifecycle."""
 
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -149,3 +150,75 @@ def test_bad_events_row_is_reported_not_fatal(cfg, store, tg, net, params, tmp_p
     a.tick(NOW)
     assert any(m["chat"] == DISPATCHER for m in tg.sent)
     assert any("Narnia Arena" in m["text"] for m in tg.sent if m["chat"] == BUILDER)
+
+
+# ---- daily look-ahead -----------------------------------------------------------------
+
+FUTURE = (Path(__file__).resolve().parent.parent / "fixtures" / "tfl" / "future_status_2026-09-24_to_2026-09-30.json").read_bytes()
+
+
+class Routes:
+    """Live status for the tick, the real 7-day fixture for the look-ahead (or an error)."""
+
+    def __init__(self, future=FUTURE):
+        self.future, self.future_calls = future, 0
+
+    def __call__(self, url):
+        if "/to/" in url:
+            self.future_calls += 1
+            if isinstance(self.future, Exception):
+                raise self.future
+            return self.future
+        return status()
+
+
+def lookahead_alerter(cfg, store, tg, net, params, routes, area="Liverpool Street 5"):
+    from surgesignal.alerts.settings import Settings, set_area, set_idle
+    store.put_state("settings", set_idle(set_area(Settings(), area, net), "6").to_dict())
+    return Alerter(cfg, store, tg, net, params, fetch=routes, lookahead=True)
+
+
+THU_1759 = datetime(2026, 9, 24, 16, 59, tzinfo=timezone.utc)  # 17:59 London
+
+
+def test_daily_lookahead_sent_once_after_its_time(cfg, store, tg, net, params):
+    routes = Routes()
+    a = lookahead_alerter(cfg, store, tg, net, params, routes)
+    a.tick(THU_1759)
+    assert tg.sent == [] and routes.future_calls == 0  # before 18:00
+    a.tick(THU_1759 + timedelta(minutes=1))
+    a.tick(THU_1759 + timedelta(minutes=30))
+    (m,) = tg.sent
+    assert m["chat"] == DISPATCHER and m["text"].startswith("📅 Next 7 days near Liverpool Street")
+    assert routes.future_calls == 1
+    a.tick(THU_1759 + timedelta(days=1, minutes=1))  # next day: again
+    assert routes.future_calls == 2
+
+
+def test_nothing_planned_sends_nothing_but_counts_as_done(cfg, store, tg, net, params):
+    routes = Routes()
+    a = lookahead_alerter(cfg, store, tg, net, params, routes, area="Morden 2")
+    a.tick(THU_1759 + timedelta(minutes=1))
+    a.tick(THU_1759 + timedelta(minutes=2))
+    assert tg.sent == [] and routes.future_calls == 1
+
+
+def test_lookahead_off_or_quiet(cfg, store, tg, net, params):
+    routes = Routes()
+    a = lookahead_alerter(cfg, store, tg, net, params, routes)
+    s = store.get_state("settings")
+    store.put_state("settings", {**s, "quiet_start": "17:00", "quiet_end": "19:00"})
+    a.tick(THU_1759 + timedelta(minutes=1))
+    store.put_state("settings", {**s, "lookahead_at": None})
+    a.tick(THU_1759 + timedelta(minutes=2))
+    assert routes.future_calls == 0 and tg.sent == []
+
+
+def test_tfl_failure_is_reported_and_retried(cfg, store, tg, net, params):
+    routes = Routes(future=OSError("TfL down"))
+    a = lookahead_alerter(cfg, store, tg, net, params, routes)
+    a.tick(THU_1759 + timedelta(minutes=1))
+    assert [m["chat"] for m in tg.sent] == [BUILDER] and "look-ahead failed (OSError)" in tg.sent[0]["text"]
+    routes.future = FUTURE
+    a.tick(THU_1759 + timedelta(minutes=2))
+    assert tg.sent[-1]["chat"] == DISPATCHER and tg.sent[-1]["text"].startswith("📅")

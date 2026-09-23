@@ -87,6 +87,7 @@ class IncidentTracker:
             inc = asdict(tr.incident)
             inc["station_ids"] = list(inc["station_ids"])
             inc["started_at"] = tr.incident.started_at.isoformat() if tr.incident.started_at else None
+            inc["periods"] = [[a.isoformat(), b.isoformat()] for a, b in tr.incident.periods]
             return {"incident": inc, "t0": tr.t0.isoformat(),
                     "resolved_at": tr.resolved_at.isoformat() if tr.resolved_at else None}
         return {k: enc(v) for k, v in self.state.items()}
@@ -97,6 +98,7 @@ class IncidentTracker:
             inc = dict(d["incident"])
             inc["station_ids"] = tuple(inc["station_ids"])
             inc["started_at"] = datetime.fromisoformat(inc["started_at"]) if inc.get("started_at") else None
+            inc["periods"] = tuple((datetime.fromisoformat(a), datetime.fromisoformat(b)) for a, b in inc.get("periods", []))
             return Tracked(Incident(**inc), datetime.fromisoformat(d["t0"]),
                            datetime.fromisoformat(d["resolved_at"]) if d.get("resolved_at") else None)
         return cls(params, {k: dec(v) for k, v in data.items()})

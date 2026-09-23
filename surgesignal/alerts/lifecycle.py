@@ -26,7 +26,8 @@ from dataclasses import dataclass, replace
 from datetime import datetime, time, timedelta
 from typing import Any
 
-from surgesignal.alerts.format import LONDON, format_alert, format_line_wide, london_hhmm
+from surgesignal.alerts.format import LONDON, format_alert, format_line_wide, london_hhmm, unique_places
+from surgesignal.engine.explain import line_label
 from surgesignal.engine.params import Params
 from surgesignal.engine.types import Disruption, EngineResult, Hotspot
 
@@ -100,8 +101,8 @@ def in_quiet_hours(now: datetime, quiet: tuple[time, time] | None) -> bool:
 
 
 def top_stations(d: Disruption, ctx: Context, p: Params) -> list[Hotspot]:
-    hs = [h for h in ctx.result.hotspots if d.key in h.disruption_keys and h.station.id not in ctx.suppressed_station_ids]
-    return hs[: p.top_n]
+    hs = (h for h in ctx.result.hotspots if d.key in h.disruption_keys and h.station.id not in ctx.suppressed_station_ids)
+    return unique_places(hs, p.top_n)
 
 
 def qualifies(d: Disruption, ctx: Context, p: Params) -> bool:
@@ -171,7 +172,7 @@ def decide(disruptions: Sequence[Disruption], records: Mapping[str, AlertRecord]
         if gone_long_enough:
             since = f", since {london_hhmm(d.resolved_at)}" if d is not None and d.resolved_at else ""
             line_name = d.line_name if d is not None else key.split(":")[0].replace("-", " ").title()
-            actions.append(SendResolved(key, rec.message_id, f"✅ {line_name} line: back to good service{since}."))
+            actions.append(SendResolved(key, rec.message_id, f"✅ {line_label(line_name)}: back to good service{since}."))
     return actions
 
 

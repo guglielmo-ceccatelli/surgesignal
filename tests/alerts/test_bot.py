@@ -171,3 +171,44 @@ def test_bad_button_data_is_rejected(bot, tg, store, data):
 def test_stranger_button_press_is_ignored(bot, tg, store):
     bot.handle(press(STRANGER, "cs|940GZZLUSKW|busy"), NOW)
     assert store.checkins_since(NOW - timedelta(days=1)) == [] and tg.answers == [("cb1", None)]
+
+
+# ---- look-ahead -----------------------------------------------------------------------
+
+
+def test_lookahead_setting(bot, store):
+    assert settings(store).lookahead_at == "18:00"  # on by default
+    bot.handle(msg(DISPATCHER, "/lookahead 7:30"), NOW)
+    assert settings(store).lookahead_at == "07:30"
+    bot.handle(msg(DISPATCHER, "/lookahead off"), NOW)
+    assert settings(store).lookahead_at is None and "Look-ahead: off" in "\n".join(m["text"] for m in bot.tg.sent)
+
+
+@pytest.mark.parametrize("arg", ["soon", "25:00", "7"])
+def test_bad_lookahead_rejected(bot, store, arg):
+    bot.handle(msg(DISPATCHER, f"/lookahead {arg}"), NOW)
+    assert store.get_state("settings") is None
+
+
+def test_week_needs_area_then_calls_lookahead(cfg, store, tg, net):
+    calls = []
+    b = Bot(cfg, store, tg, net, lookahead=lambda now: calls.append(now) or "📅 Next 7 days near X: nothing planned")
+    b.handle(msg(DISPATCHER, "/week"), NOW)
+    assert "Set your area first" in last(tg) and calls == []
+    b.handle(msg(DISPATCHER, "/area Stockwell 3"), NOW)
+    b.handle(msg(DISPATCHER, "/week"), NOW)
+    assert calls == [NOW] and last(tg).startswith("📅")
+
+
+def test_week_reports_failure_instead_of_crashing(cfg, store, tg, net):
+    def boom(now):
+        raise OSError("TfL down")
+    b = Bot(cfg, store, tg, net, lookahead=boom)
+    b.handle(msg(DISPATCHER, "/area Stockwell 3"), NOW)
+    b.handle(msg(DISPATCHER, "/week"), NOW)
+    assert "Couldn't build the look-ahead right now (OSError)" in last(tg)
+
+
+def test_week_is_dispatcher_only(bot, tg):
+    bot.handle(msg(DRIVER, "/week"), NOW)
+    assert "/checkin" in last(tg)

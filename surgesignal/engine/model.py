@@ -67,11 +67,12 @@ def weather_mult(c: Conditions, p: Params) -> float:
 
 
 def event_mult(station: Station, c: Conditions, now: datetime, p: Params) -> float:
-    """Largest multiplier among events ending nearby within the window (not a product)."""
+    """Largest multiplier among events nearby whose crowd is leaving (not a product): from
+    event_before_min before the end until event_after_min after it."""
     best = 1.0
     for e in c.events:
         ends_in = minutes_between(now, e.ends_at)
-        if not 0 <= ends_in <= p.event_window_min:
+        if not -p.event_after_min <= ends_in <= p.event_before_min:
             continue
         if haversine_km(station.lat, station.lon, e.lat, e.lon) > p.event_radius_km:
             continue

@@ -28,4 +28,16 @@
 **Priority:** P2
 **Depends on:** Oct 1–4 gate result; operator has a reachable customer channel
 
+### Automatic event fixtures
+
+**What:** Fill `events.csv` automatically from fixture sources (football, concerts, rugby) instead of by hand.
+
+**Why:** The look-ahead and live event boost are only as good as the fixtures someone remembers to type in.
+
+**Context:** Deferred Sep 23, 2026 when T12 was extended to events. Free football fixture APIs (e.g. football-data.org) need a key and sign-up; concerts/arenas need Ticketmaster Discovery (key) or paid event-data services. Keep `events.csv` as the override so hand-entered rows still win. Start with the four football grounds in `surgesignal/data/venues.csv`, then Wembley and The O2. Only worth doing if the operator says events matter to them.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** Operator interviews (do events matter to them?)
+
 ## Completed

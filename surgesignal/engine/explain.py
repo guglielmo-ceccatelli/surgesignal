@@ -25,9 +25,14 @@ MAX_PARTS = 3
 NEGLIGIBLE_UPLIFT = 0.005
 
 
+def line_label(line_name: str) -> str:
+    """'Northern' → 'Northern line'; TfL's 'Elizabeth line' already says it (no 'line line')."""
+    return line_name if line_name.lower().endswith(" line") else f"{line_name} line"
+
+
 def disruption_phrase(d: Disruption) -> str:
     kind = "unplanned" if d.is_unplanned else "planned"
-    return f"{d.line_name} line {SEVERITY_WORDS[d.severity_class]} ({kind})"
+    return f"{line_label(d.line_name)} {SEVERITY_WORDS[d.severity_class]} ({kind})"
 
 
 def weather_phrase(c: Conditions, p: Params) -> str | None:

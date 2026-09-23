@@ -37,7 +37,8 @@ class Params:
     cold_threshold_c: float
     cold_bonus: float
     event_radius_km: float
-    event_window_min: float
+    event_before_min: float
+    event_after_min: float
     event_medium_capacity: float
     event_medium_multiplier: float
     event_large_capacity: float
@@ -48,6 +49,8 @@ class Params:
     sizing_k: float
     incident_merge_window_min: float
     resolved_retention_min: float
+    lookahead_min_uplift: float
+    lookahead_days: float
     top_n: int
     default_service_radius_km: float
 

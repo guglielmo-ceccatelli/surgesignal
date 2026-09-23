@@ -1,10 +1,14 @@
 """Turn TfL Line/Status JSON into incidents with explicit station sets.
 
-    lineStatus ─► statusSeverity code ─► severity class (or ignore: Good Service, Service Closed…)
+    lineStatus ─► category "Information" (e.g. Waterloo & City not running at weekends)? ─► ignore
+       │
+       ├─ statusSeverity code ─► severity class (or ignore: Good Service, Service Closed…)
        │
        ├─ disruption.affectedStops non-empty? ─► those stations
        ├─ reason has "between A and B" clause(s)? ─► one incident per clause:
        │     A, B may be "X / Y" alternatives and carry "via Z" hints
+       │     "no service / suspended / closed between…" raises that section to ≥ part suspended
+       │       (TfL's headline can say "Minor Delays" while one section has no service)
        │     resolve names on THIS line ─► expand along each route containing both ends
        │       (shortest slice wins; "via Z" keeps only routes through Z)
        │     unresolvable ─► whole line, severity ×0.5, area_uncertain, problem logged  (5A)
@@ -20,7 +24,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from surgesignal.tfl.names import normalise
@@ -59,12 +63,17 @@ UNCERTAIN_SCALE = 0.5
 _END = r"(?=\s+due to\b|\s+because\b|\s+while\b|\s+after\b|,|;|(?<!\bst)\.(?:\s|$)|\s-\s|$)"
 BETWEEN = re.compile(r"\bbetween\s+(?P<span>.+?)" + _END, re.I)
 # "Service operating between A and B" names where trains still RUN: the opposite of the disruption.
-RUNNING_CONTEXT = re.compile(r"\b(?:operating|running|runs|operates)\s+(?:\w+\s+){0,2}$", re.I)
+RUNNING_CONTEXT = re.compile(r"\b(?:operat(?:e|es|ing)|run(?:s|ning)?)\s+(?:\w+\s+){0,2}$", re.I)
 SINGLE_STATION = re.compile(
     r"(?:not stopping at|no service (?:at|to)|(?:is |are )?closed at|non-stop through)\s+(?P<s>(?:[^,.;]|(?<=\bst)\.)+?)(?=\s+(?:station|due|because|while)\b|,|;|(?<!\bst)\.(?:\s|$)|$)",
     re.I,
 )
-VIA = re.compile(r"\s+via\s+(?P<via>.+)$", re.I)
+VIA = re.compile(r"\s+\(?via\s+(?P<via>[^)]+?)\)?$", re.I)  # "Hainault via Newbury Park" or "(via Newbury Park)"
+# "between 0210 and 0530" / "between 21:00 and 23:30" are times, not stations.
+# "Use DISTRICT LINE trains between…" is travel advice about another line, not a closed section.
+ADVICE_SENTENCE = re.compile(r"^\s*use\b", re.I)
+TIME_SPAN = re.compile(r"^\s*\d{1,2}[:.]?\d{2}\s+and\s+\d{1,2}[:.]?\d{2}\s*$")
+NO_SERVICE_CONTEXT = re.compile(r"\b(?:no (?:train )?service|suspended|closed|no trains)\s+(?:\w+\s+){0,2}$", re.I)
 
 
 @dataclass(frozen=True)
@@ -81,6 +90,7 @@ class Incident:
     severity_scale: float = 1.0
     reason: str = ""
     started_at: datetime | None = None  # TfL validityPeriods fromDate (isNow), when given
+    periods: tuple[tuple[datetime, datetime], ...] = ()  # every scheduled validity period (look-ahead)
 
 
 @dataclass
@@ -111,12 +121,16 @@ def _parse_line_status(line_id: str, ls: dict[str, Any], network: Network, resul
 
     disruption = ls.get("disruption") or {}
     category = disruption.get("category")
+    if category == "Information":
+        return  # routine, not a disruption: e.g. "Waterloo & City: no service at weekends"
     is_unplanned = category == "RealTime" if category in ("RealTime", "PlannedWork") else not planned
     reason = " ".join((ls.get("reason") or disruption.get("description") or "").split())
     started_at = _started_at(ls)
+    periods = _periods(ls)
     line = network.lines[line_id]
 
-    def incident(section: tuple[str, ...] | None, *, uncertain: bool = False, tag: str = "") -> Incident:
+    def incident(section: tuple[str, ...] | None, *, uncertain: bool = False, tag: str = "",
+                 severity_class: str | None = None) -> Incident:
         line_wide = section is None and not uncertain  # uncertain = whole line, still ranked (5A)
         ids = tuple(sorted(line.station_ids)) if uncertain else (() if line_wide else tuple(sorted(section)))
         key_src = "line-wide" if line_wide else (f"uncertain:{tag}" if uncertain else "|".join(ids))
@@ -124,7 +138,7 @@ def _parse_line_status(line_id: str, ls: dict[str, Any], network: Network, resul
             key=f"{line_id}:{hashlib.sha1(key_src.encode()).hexdigest()[:10]}",
             line=line_id,
             line_name=line.name,
-            severity_class=severity,
+            severity_class=severity_class or severity,
             status_code=code if isinstance(code, int) else -1,
             is_unplanned=is_unplanned,
             station_ids=ids,
@@ -133,6 +147,7 @@ def _parse_line_status(line_id: str, ls: dict[str, Any], network: Network, resul
             severity_scale=UNCERTAIN_SCALE if uncertain else 1.0,
             reason=reason,
             started_at=started_at,
+            periods=periods,
         )
 
     affected = [network.naptan_to_station.get(s.get("naptanId") or s.get("id", "")) for s in disruption.get("affectedStops") or []]
@@ -142,14 +157,19 @@ def _parse_line_status(line_id: str, ls: dict[str, Any], network: Network, resul
         return
 
     index = network.name_index(line_id)
-    clauses = [m.group("span") for m in BETWEEN.finditer(reason) if not RUNNING_CONTEXT.search(reason[: m.start()])]
-    for span in clauses:
+    matches = section_matches(reason)
+    clauses = [m.group("span") for m in matches]
+    for m in matches:
+        span = m.group("span")
+        clause_severity = severity
+        if NO_SERVICE_CONTEXT.search(reason[: m.start()]) and SEVERITY_RANK[severity] < SEVERITY_RANK["part_suspended"]:
+            clause_severity = "part_suspended"
         section = expand_clause(span, line_id, network, index)
         if section:
-            result.incidents.append(incident(section))
+            result.incidents.append(incident(section, severity_class=clause_severity))
         else:
             result.problems.append(f"{line_id}: could not place section 'between {span}' in: {reason}")
-            result.incidents.append(incident(None, uncertain=True, tag=normalise(span)))
+            result.incidents.append(incident(None, uncertain=True, tag=normalise(span), severity_class=clause_severity))
 
     if not clauses:
         singles = {sid for m in SINGLE_STATION.finditer(reason) for sid in index.get(normalise(m.group("s")), ())}
@@ -157,6 +177,18 @@ def _parse_line_status(line_id: str, ls: dict[str, Any], network: Network, resul
             result.incidents.append(incident(tuple(singles)))
         else:
             result.incidents.append(incident(None))
+
+
+def section_matches(reason: str) -> list[re.Match[str]]:
+    """'between A and B' clauses that name a disrupted section: not where trains still run
+    ("service operating between…"), not time ranges ("between 0210 and 0530"), not travel
+    advice ("Use DISTRICT LINE trains between…")."""
+    def sentence_start(i: int) -> str:
+        return reason[max(reason.rfind(". ", 0, i), reason.rfind(": ", 0, i)) + 2 : i]
+
+    return [m for m in BETWEEN.finditer(reason)
+            if not RUNNING_CONTEXT.search(reason[: m.start()]) and not TIME_SPAN.match(m.group("span"))
+            and not ADVICE_SENTENCE.match(sentence_start(m.start()))]
 
 
 def expand_clause(span: str, line_id: str, network: Network, index: dict[str, tuple[str, ...]]) -> set[str] | None:
@@ -225,10 +257,25 @@ def _started_at(ls: dict[str, Any]) -> datetime | None:
     for period in ls.get("validityPeriods") or []:
         if period.get("isNow") and period.get("fromDate"):
             try:
-                return datetime.fromisoformat(period["fromDate"].replace("Z", "+00:00"))
+                started = datetime.fromisoformat(period["fromDate"].replace("Z", "+00:00"))
             except ValueError:
                 return None
+            return started if started.tzinfo else started.replace(tzinfo=timezone.utc)
     return None
+
+
+def _periods(ls: dict[str, Any]) -> tuple[tuple[datetime, datetime], ...]:
+    out = []
+    for period in ls.get("validityPeriods") or []:
+        try:
+            start = datetime.fromisoformat(period["fromDate"].replace("Z", "+00:00"))
+            end = datetime.fromisoformat(period["toDate"].replace("Z", "+00:00"))
+        except (KeyError, ValueError):
+            continue
+        if start.tzinfo is None:  # TfL sometimes omits the Z; its times are UTC
+            start, end = start.replace(tzinfo=timezone.utc), end.replace(tzinfo=timezone.utc)
+        out.append((start, end))
+    return tuple(out)
 
 
 def _dedupe(incidents: list[Incident]) -> list[Incident]:

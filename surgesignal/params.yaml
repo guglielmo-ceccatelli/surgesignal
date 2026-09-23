@@ -95,11 +95,25 @@ event_radius_km:
   value: 1.5
   unit: km
   source: assumption
-event_window_min:
-  value: 60
+event_before_min:
+  value: 30
   unit: minutes
   source: assumption
-  note: An event counts if it ends within this window from now.
+  note: An event starts boosting nearby demand this long before it ends (cars should be arriving).
+event_after_min:
+  value: 45
+  unit: minutes
+  source: assumption
+  note: ...and keeps boosting it this long after it ends, while the crowd disperses.
+lookahead_min_uplift:
+  value: 0.05
+  unit: fraction of baseline
+  source: design choice
+  note: Look-ahead items adding less than this at their busiest moment are left out.
+lookahead_days:
+  value: 7
+  unit: days
+  source: design choice
 event_medium_capacity:
   value: 10000
   unit: people

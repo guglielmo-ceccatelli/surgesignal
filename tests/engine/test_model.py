@@ -90,7 +90,9 @@ def event(station, capacity, ends_in_min):
 
 
 @pytest.mark.parametrize("capacity,ends_in,expected", [
-    (9_999, 30, 1.0), (10_000, 30, 1.15), (40_000, 30, 1.3), (60_000, 61, 1.0), (60_000, -1, 1.0),
+    (9_999, 10, 1.0), (10_000, 10, 1.15), (40_000, 10, 1.3),
+    (60_000, 30, 1.3), (60_000, 31, 1.0),    # starts 30 min before the end
+    (60_000, -45, 1.3), (60_000, -46, 1.0),  # crowd still leaving 45 min after the end
 ])
 def test_event_multiplier_tiers_and_window(params, northern_stations, capacity, ends_in, expected):
     s = northern_stations["940GZZLUSKW"]
@@ -100,7 +102,7 @@ def test_event_multiplier_tiers_and_window(params, northern_stations, capacity, 
 
 def test_events_take_the_largest_multiplier_not_the_product(params, northern_stations):
     s = northern_stations["940GZZLUSKW"]
-    c = Conditions(events=(event(s, 12_000, 10), event(s, 50_000, 20)))
+    c = Conditions(events=(event(s, 12_000, 10), event(s, 50_000, -20)))
     assert model.event_mult(s, c, NOW, params) == pytest.approx(1.3)
 
 

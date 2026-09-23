@@ -11,12 +11,12 @@ Times are shown in London time. Private-hire cars can't wait at stations for pas
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from surgesignal.engine import sizing
-from surgesignal.engine.explain import SEVERITY_WORDS
+from surgesignal.engine.explain import SEVERITY_WORDS, line_label
 from surgesignal.engine.params import Params
 from surgesignal.engine.timeprofile import expected_end
 from surgesignal.engine.types import Disruption, EngineResult, Hotspot
@@ -34,7 +34,7 @@ def pct_range(h: Hotspot) -> str:
 
 def headline(d: Disruption) -> str:
     kind = "unplanned" if d.is_unplanned else "planned"
-    return f"{d.line_name} line {SEVERITY_WORDS[d.severity_class]} ({kind}, {london_hhmm(d.t0)})"
+    return f"{line_label(d.line_name)} {SEVERITY_WORDS[d.severity_class]} ({kind}, {london_hhmm(d.t0)})"
 
 
 def format_alert(d: Disruption, top: Sequence[Hotspot], idle_drivers: int | None, now: datetime, p: Params,
@@ -65,6 +65,20 @@ def format_line_wide(d: Disruption) -> str:
     return f"ℹ️ {headline(d)} across the line. TfL gave no section, so no station suggestion."
 
 
+def unique_places(hotspots: Iterable[Hotspot], n: int) -> list[Hotspot]:
+    """First n hotspots, one per place: the Tube and Elizabeth line platforms at Liverpool Street
+    are separate stations to TfL but one place to a driver."""
+    out: list[Hotspot] = []
+    seen: set[str] = set()
+    for h in hotspots:
+        if h.station.name not in seen:
+            seen.add(h.station.name)
+            out.append(h)
+        if len(out) == n:
+            break
+    return out
+
+
 def top_for(result: EngineResult, d: Disruption, p: Params) -> list[Hotspot]:
-    """Top in-area stations where this disruption is a cause (highest extra first)."""
-    return [h for h in result.hotspots if d.key in h.disruption_keys][: p.top_n]
+    """Top in-area places where this disruption is a cause (highest extra first)."""
+    return unique_places((h for h in result.hotspots if d.key in h.disruption_keys), p.top_n)

@@ -28,7 +28,9 @@ from typing import Any
 
 from surgesignal.alerts import lifecycle
 from surgesignal.alerts.bot import CHECKIN_WINDOW, Bot
-from surgesignal.alerts.lifecycle import AlertRecord, Context
+from surgesignal.alerts.format import LONDON
+from surgesignal.alerts.lifecycle import AlertRecord, Context, in_quiet_hours
+from surgesignal.alerts.lookahead import closure_items, event_items, format_lookahead
 from surgesignal.alerts.settings import Settings
 from surgesignal.alerts.telegram import Telegram
 from surgesignal.config import Config, load_config
@@ -46,6 +48,7 @@ from surgesignal.tfl.tracker import IncidentTracker
 from workers.logger import http_fetch, log, tfl_url
 
 STATUS_PATH = "/Line/Mode/tube,elizabeth-line/Status"
+FUTURE_STATUS_PATH = "/Line/{lines}/Status/{start}/to/{end}"  # per-line form: the mode form 404s for date ranges
 TICK_SECONDS = 60
 POLL_SECONDS = 25
 ERROR_PING_EVERY = timedelta(hours=1)
@@ -62,15 +65,17 @@ def disruption_row(d: Disruption) -> dict[str, Any]:
 class Alerter:
     def __init__(self, cfg: Config, store: Store, tg: Telegram, network: Network, params: Params,
                  fetch=http_fetch, weather: WeatherSource | None = None, events_path: Path | None = None,
-                 baseline: Baseline | None = None) -> None:
-        """weather=None scores as dry and events_path=None means no events: the safe defaults for
-        tests and replays, which must not touch the network. main() turns both on."""
+                 baseline: Baseline | None = None, lookahead: bool = False) -> None:
+        """weather=None scores as dry, events_path=None means no events and lookahead=False sends no
+        daily look-ahead: the safe defaults for tests and replays, which must not touch the network.
+        main() turns them on."""
         self.cfg, self.store, self.tg, self.network, self.p, self.fetch = cfg, store, tg, network, params, fetch
         self.line_stations = {lid: line.station_ids for lid, line in network.lines.items()}
         self.baseline = baseline or Baseline.load()
         self.weather = weather
         self.events_path = events_path
         self.venues = load_venues()
+        self.lookahead = lookahead
         self._last_error_ping: dict[str, datetime] = {}
 
     def tick(self, now: datetime) -> list[lifecycle.Action]:
@@ -105,6 +110,9 @@ class Alerter:
             quiet=settings.quiet,
         )
 
+        if self.lookahead:
+            self._maybe_send_lookahead(settings, now)
+
         records = {k: AlertRecord.from_dict(v) for k, v in (self.store.get_state("alerts") or {}).items()}
         actions = lifecycle.decide(disruptions, records, ctx, now, self.p)
         for action in actions:
@@ -129,6 +137,39 @@ class Alerter:
             events, event_problems = load_events(self.venues, self.events_path)
             problems += event_problems
         return Conditions(precip, temp, tuple(events), self.baseline.time_label(forecast_at)), problems
+
+    # ---- look-ahead -------------------------------------------------------------------
+
+    def compose_lookahead(self, now: datetime) -> str:
+        """Planned closures, strikes and events in the next days for the dispatcher's area."""
+        settings = Settings.from_dict(self.store.get_state("settings"))
+        area = ServiceArea(settings.area_lat, settings.area_lon, settings.radius_km)
+        start = now.astimezone(LONDON).date()
+        end = start + timedelta(days=int(self.p.lookahead_days))
+        path = FUTURE_STATUS_PATH.format(lines=",".join(sorted(self.network.lines)), start=start, end=end)
+        future = parse_status(json.loads(self.fetch(tfl_url(path, None))), self.network)
+        events = load_events(self.venues, self.events_path)[0] if self.events_path is not None else []
+        items = closure_items(future.incidents, self.network.stations, self.line_stations, self.baseline.at, area, now, self.p)
+        items += event_items(events, self.network.stations, self.baseline.at, area, now, self.p)
+        return format_lookahead(items, settings.area_label or "your area", settings.radius_km,
+                                settings.idle_drivers, self.p.lookahead_days, self.p)
+
+    def _maybe_send_lookahead(self, settings: Settings, now: datetime) -> None:
+        """Once a day at settings.lookahead_at (London), only when something is planned."""
+        if not settings.lookahead_at or in_quiet_hours(now, settings.quiet):
+            return
+        local = now.astimezone(LONDON)
+        state = self.store.get_state("lookahead") or {}
+        if local.strftime("%H:%M") < settings.lookahead_at or state.get("sent_on") == local.date().isoformat():
+            return
+        try:
+            text = self.compose_lookahead(now)
+        except Exception as exc:  # never blocks live alerts; retried next tick, reported daily
+            self._report_problems([f"look-ahead failed ({type(exc).__name__}): will retry"], now)
+            return
+        if "nothing planned" not in text:
+            self.tg.send(self.cfg.dispatcher_chat_id, text)
+        self.store.put_state("lookahead", {"sent_on": local.date().isoformat()})
 
     def _execute(self, action: lifecycle.Action) -> int | None:
         chat = self.cfg.dispatcher_chat_id
@@ -220,8 +261,8 @@ def main() -> int:
     store = make_store(cfg)
     tg = Telegram(cfg.telegram_bot_token)
     network, params = load_network(), load_params()
-    alerter = Alerter(cfg, store, tg, network, params, weather=WeatherSource(), events_path=EVENTS_PATH)
-    bot = Bot(cfg, store, tg, network)
+    alerter = Alerter(cfg, store, tg, network, params, weather=WeatherSource(), events_path=EVENTS_PATH, lookahead=True)
+    bot = Bot(cfg, store, tg, network, lookahead=alerter.compose_lookahead)
     log("alerter started" + ("" if cfg.dispatcher_chat_id else " (no dispatcher_chat_id yet: send /whoami to the bot)"))
     try:
         run_forever(alerter, bot, tg, store)

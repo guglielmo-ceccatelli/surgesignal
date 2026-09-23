@@ -4,6 +4,7 @@
     /area Clapham Common 5      centre on a station, radius in km (default 5)
     /area SW4 7AA 3             or a UK postcode (looked up on postcodes.io)
     /quiet 23:00-06:00 | off    no alerts in these London hours
+    /lookahead 18:00 | off      daily look-ahead at this London time (planned closures, strikes, events)
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ class Settings:
     radius_km: float = 5.0
     quiet_start: str | None = None  # "HH:MM", London time
     quiet_end: str | None = None
+    lookahead_at: str | None = "18:00"  # "HH:MM" London, None = off
 
     @property
     def has_area(self) -> bool:
@@ -56,7 +58,8 @@ class Settings:
         area = f"{self.area_label}, {self.radius_km:g} km" if self.has_area else "not set (use /area)"
         idle = str(self.idle_drivers) if self.idle_drivers is not None else "not set (use /idle)"
         quiet = f"{self.quiet_start}–{self.quiet_end}" if self.quiet else "off"
-        return f"Area: {area}\nIdle cars: {idle}\nQuiet hours: {quiet}"
+        ahead = f"daily at {self.lookahead_at}" if self.lookahead_at else "off"
+        return f"Area: {area}\nIdle cars: {idle}\nQuiet hours: {quiet}\nLook-ahead: {ahead}"
 
 
 class SettingsError(ValueError):
@@ -118,3 +121,13 @@ def set_quiet(s: Settings, arg: str) -> Settings:
     if not (h1 < 24 and h2 < 24 and m1 < 60 and m2 < 60) or (h1, m1) == (h2, m2):
         raise SettingsError("Use two different times like 23:00-06:00.")
     return replace(s, quiet_start=f"{h1:02d}:{m1:02d}", quiet_end=f"{h2:02d}:{m2:02d}")
+
+
+def set_lookahead(s: Settings, arg: str) -> Settings:
+    arg = arg.strip().lower()
+    if arg == "off":
+        return replace(s, lookahead_at=None)
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})", arg)
+    if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+        raise SettingsError("Usage: /lookahead 18:00  or  /lookahead off")
+    return replace(s, lookahead_at=f"{int(m.group(1)):02d}:{m.group(2)}")
