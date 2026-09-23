@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 backup/heartbeat.json
+config.local.yaml
+.env

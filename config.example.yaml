@@ -1,0 +1,8 @@
+# Copy to config.local.yaml (git-ignored) and fill in. Never commit the real file.
+telegram_bot_token: "123456:ABC..."        # from @BotFather (/newbot)
+dispatcher_chat_id:                         # send /whoami to your bot, paste the number here
+driver_chat_ids: []                         # e.g. [111111111, 222222222]
+builder_chat_id:                            # your own chat id, for problem and error pings
+driver_hash_salt: ""                        # 16+ random characters, e.g. `openssl rand -hex 16`
+supabase_url:                               # e.g. https://abcd.supabase.co   (optional for now)
+supabase_service_key:                       # Settings → API → service_role key (keep secret)
