@@ -293,7 +293,7 @@ Launch A tonight, B in parallel. Merge, then C, then D. Conflict risk: C and D b
 
 ### Implementation Tasks
 - [x] **T1 (P1, human: ~1h / CC: ~10min)**: logger: raw TfL logger (status + disruption every 60 s, BikePoint every 5 min, change-only gzip, heartbeat). Done Sep 23: `workers/logger.py`, `surgesignal/store/rawlog.py`, 18 tests passing, running since 15:46 UTC.
-- [~] **T2 (P1, human: ~1h / CC: ~10min)**: backup GitHub Actions raw-snapshot job (*/5). Written: `.github/workflows/snapshot.yml` (status + disruption only; BikePoint excluded to keep the repo small) + `ci.yml`. **Blocked on the public GitHub repo existing.**
+- [x] **T2 (P1, human: ~1h / CC: ~10min)**: backup GitHub Actions raw-snapshot job (*/5), status + disruption only (BikePoint excluded to keep the repo small), plus CI. Live Sep 23 at github.com/guglielmo-ceccatelli/surgesignal; first snapshot 972855c.
 - [x] **T3 (P1, human: ~1d / CC: ~30min)**: engine: pure `model/geo/timeprofile/sizing/explain` + `params.yaml` + golden test. Done Sep 23: 72 engine tests, golden example reproduced from real TfL coordinates.
 - [x] **T4 (P1, human: ~1.5d / CC: ~45min)**: parser: normalisation, same-place name groups, Route/Sequence expansion (branch- and via-aware), full statusSeverity map, incident key, fallbacks, incident tracker (t0 / resolved / flap merge / persistable). Done Sep 23: `surgesignal/tfl/`, `surgesignal/data/network.json` (315 stations, 12 lines), 43 tests incl. today's real Central line disruption replayed end to end.
 - [ ] **T5 (P1, human: ~1d / CC: ~30min)**: lifecycle (pure) + `alerts` table + Telegram I/O + allowlist. Verify: `pytest tests/alerts tests/bot`.
