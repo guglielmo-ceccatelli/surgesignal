@@ -88,8 +88,16 @@ def test_flapping_status_is_one_incident(net, params, base):
     flap = [(at(0), northern(base)), (at(5), northern(base, 2)), (at(50), northern(base)),
             (at(55), northern(base, 2)), (at(90), northern(base))]
     result = replay(flap, net, params, settings(net))
-    assert summary(result) == [(at(5), "new"), (at(100), "resolved")]
+    # one incident: one alert, one all-clear (edits may happen as the evening's busiest stations shift)
+    assert [(e.at, e.kind) for e in result.events if e.kind != "edit"] == [(at(5), "new"), (at(100), "resolved")]
     assert result.events[-1].text.endswith("since 19:30.")
+
+
+def test_top_stations_follow_real_busyness_not_the_alphabet(net, params, suspension):
+    new = replay(suspension, net, params, settings(net)).of("new")[0].text
+    # Morden branch, Clapham Common 5 km, Wednesday 18:05: the busiest affected stations lead
+    assert "around Tooting Broadway, Balham, Tooting Bec" in new
+    assert "Wednesday evening peak" in new
 
 
 def test_outside_the_area_is_silent(net, params, suspension):

@@ -6,3 +6,4 @@ __pycache__/
 backup/heartbeat.json
 config.local.yaml
 .env
+.DS_Store

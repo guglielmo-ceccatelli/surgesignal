@@ -35,7 +35,12 @@ def lookup_keys(name: str) -> set[str]:
 
 
 def display_name(name: str) -> str:
-    """Station name for alerts: no suffixes, no 'London ' prefix, keeps disambiguating brackets."""
+    """Station name for alerts: no suffixes, keeps disambiguating brackets.
+
+    'London ' is dropped only from main-line rail names ("London Paddington Rail Station" →
+    "Paddington"); on the Tube it is part of the name ("London Bridge Underground Station").
+    """
+    main_line = name.endswith(" Rail Station")
     for suffix in (" Underground Station", " Rail Station", " DLR Station", "-Underground"):
         name = name.replace(suffix, "")
-    return name[len("London "):] if name.startswith("London ") else name
+    return name[len("London "):] if main_line and name.startswith("London ") else name

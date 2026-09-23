@@ -4,6 +4,7 @@ Runs as its own process, separate from the logger (eng review 1A). It polls TfL 
 logger stays a dumb recorder and neither process depends on the other being up.
 
     every 60 s:  TfL status ─► parse ─► tracker (t0 / resolved) ─► engine @ now+ramp ─► lifecycle.decide
+                                   weather (Open-Meteo), events.csv, station baseline ─┘
                      │            │                                            │
                      │            └─► problems ─► builder chat (once a day)    ▼
                      └─► store: tracker, disruptions_current        send / edit / resolve
@@ -35,6 +36,9 @@ from surgesignal.engine import model
 from surgesignal.engine.geo import in_service_area
 from surgesignal.engine.params import Params, load_params
 from surgesignal.engine.types import Conditions, Disruption, ServiceArea
+from surgesignal.inputs.baseline import Baseline
+from surgesignal.inputs.events import EVENTS_PATH, load_events, load_venues
+from surgesignal.inputs.weather import WeatherSource
 from surgesignal.store.state import FileStore, Store, SupabaseStore
 from surgesignal.tfl.network import Network, load_network
 from surgesignal.tfl.parser import parse_status
@@ -57,11 +61,16 @@ def disruption_row(d: Disruption) -> dict[str, Any]:
 
 class Alerter:
     def __init__(self, cfg: Config, store: Store, tg: Telegram, network: Network, params: Params,
-                 fetch=http_fetch) -> None:
+                 fetch=http_fetch, weather: WeatherSource | None = None, events_path: Path | None = None,
+                 baseline: Baseline | None = None) -> None:
+        """weather=None scores as dry and events_path=None means no events: the safe defaults for
+        tests and replays, which must not touch the network. main() turns both on."""
         self.cfg, self.store, self.tg, self.network, self.p, self.fetch = cfg, store, tg, network, params, fetch
         self.line_stations = {lid: line.station_ids for lid, line in network.lines.items()}
-        # Interim: uniform relative busyness until the TfL entry/exit baseline is built (T9).
-        self.baseline = {sid: 1.0 for sid in network.stations}
+        self.baseline = baseline or Baseline.load()
+        self.weather = weather
+        self.events_path = events_path
+        self.venues = load_venues()
         self._last_error_ping: dict[str, datetime] = {}
 
     def tick(self, now: datetime) -> list[lifecycle.Action]:
@@ -72,16 +81,20 @@ class Alerter:
         disruptions = tracker.update(parsed.incidents, now)
         self.store.put_state("tracker", tracker.to_dict())
         self.store.put_disruptions([disruption_row(d) for d in disruptions])
-        self._report_problems(parsed.problems, now)
+        problems = list(parsed.problems)
 
         settings = Settings.from_dict(self.store.get_state("settings"))
         if not settings.has_area or self.cfg.dispatcher_chat_id is None:
+            self._report_problems(problems, now)
             return []
         area = ServiceArea(settings.area_lat, settings.area_lon, settings.radius_km)
         # The alert is a forecast: score where demand is heading (end of the ramp), not where it is
         # this second, or a fresh disruption would only cross the threshold minutes after we saw it.
         forecast_at = now + timedelta(minutes=self.p.ramp_min)
-        result = model.run(self.network.stations, disruptions, Conditions(), self.baseline, area, forecast_at, self.p)
+        conditions, input_problems = self._conditions(area, now, forecast_at)
+        self._report_problems(problems + input_problems, now)
+        result = model.run(self.network.stations, disruptions, conditions, self.baseline.at(forecast_at),
+                           area, forecast_at, self.p)
         dead = frozenset(c.station_id for c in self.store.checkins_since(now - CHECKIN_WINDOW) if c.status == "dead")
         ctx = Context(
             result=result,
@@ -100,6 +113,22 @@ class Alerter:
             self._save_records(records)
         self._save_records(lifecycle.prune(records, now))
         return actions
+
+    def _conditions(self, area: ServiceArea, now: datetime, forecast_at: datetime) -> tuple[Conditions, list[str]]:
+        """Weather, events and the peak label for this tick, plus problems to report (never fatal)."""
+        problems: list[str] = []
+        precip, temp = 0.0, 15.0
+        if self.weather is not None:
+            w = self.weather.current(area.lat, area.lon, now)
+            if w is None:
+                problems.append("weather unavailable (Open-Meteo unreachable): scoring as dry weather")
+            else:
+                precip, temp = w.precip_mm_h, w.temp_c
+        events: list = []
+        if self.events_path is not None:
+            events, event_problems = load_events(self.venues, self.events_path)
+            problems += event_problems
+        return Conditions(precip, temp, tuple(events), self.baseline.time_label(forecast_at)), problems
 
     def _execute(self, action: lifecycle.Action) -> int | None:
         chat = self.cfg.dispatcher_chat_id
@@ -122,9 +151,9 @@ class Alerter:
         today = now.date().isoformat()
         new = [p for p in problems if sent.get(p) != today]
         for p in new:
-            log(f"parser problem: {p}")
+            log(f"problem: {p}")
         if new and self.cfg.builder_chat_id is not None:
-            self.tg.send(self.cfg.builder_chat_id, "SurgeSignal parser problems:\n" + "\n".join(f"• {p}" for p in new))
+            self.tg.send(self.cfg.builder_chat_id, "SurgeSignal problems:\n" + "\n".join(f"• {p}" for p in new))
         if new:
             self.store.put_state("problems", {**{k: v for k, v in sent.items() if v == today}, **{p: today for p in new}})
 
@@ -191,7 +220,8 @@ def main() -> int:
     store = make_store(cfg)
     tg = Telegram(cfg.telegram_bot_token)
     network, params = load_network(), load_params()
-    alerter, bot = Alerter(cfg, store, tg, network, params), Bot(cfg, store, tg, network)
+    alerter = Alerter(cfg, store, tg, network, params, weather=WeatherSource(), events_path=EVENTS_PATH)
+    bot = Bot(cfg, store, tg, network)
     log("alerter started" + ("" if cfg.dispatcher_chat_id else " (no dispatcher_chat_id yet: send /whoami to the bot)"))
     try:
         run_forever(alerter, bot, tg, store)

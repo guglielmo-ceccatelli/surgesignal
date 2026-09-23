@@ -1,0 +1,5 @@
+# Big events for SurgeSignal. One row per event: venue (as in surgesignal/data/venues.csv),
+# a name, and when it ENDS in London local time. The crowd leaving boosts nearby demand
+# for up to an hour before ends_at (engine params event_window_min, event_radius_km).
+# Lines starting with # are ignored. The alerter re-reads this file every minute.
+venue,name,ends_at

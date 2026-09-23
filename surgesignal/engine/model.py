@@ -3,7 +3,9 @@
     uplift(s) = Σ_d  sev(d) · plan_mult(d) · scale(d) · exp(−dist(s,d)/λ) · g(d, now)
     mult(s)   = weather_mult × event_mult(s)
     pct(s)    = (1 + uplift) × mult − 1             ← shown to the dispatcher
-    extra(s)  = baseline(s) × pct.mid               ← ranking + car allocation
+    extra(s)  = baseline(s) × uplift.mid × mult     ← ranking + car allocation: demand the DISRUPTION
+                                                      adds (amplified by weather/events). Rain alone
+                                                      raises pct everywhere but never makes a hotspot.
 
     Ranges: low = sev×0.5, λ×0.5 · mid = nominal · high = sev×1.5, λ×1.5  (from params)
 
@@ -113,7 +115,7 @@ def run(stations: Mapping[str, Station], disruptions: Iterable[Disruption], cond
             uplift=u,
             pct=pct,
             mult=mult,
-            extra=baseline.get(station.id, 0.0) * pct.mid,
+            extra=baseline.get(station.id, 0.0) * u.mid * mult,
             explanation=explain(station, sectional, terms, conditions, w_mult, mult / w_mult, p),
             disruption_keys=contributing,
         ))

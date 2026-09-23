@@ -21,6 +21,7 @@ def test_lookup_keys_cover_brackets_and_london_prefix():
 
 def test_display_name():
     assert display_name("London Liverpool Street Rail Station") == "Liverpool Street"
+    assert display_name("London Bridge Underground Station") == "London Bridge"  # regression: was "Bridge"
     assert display_name("Kensington (Olympia) Underground Station") == "Kensington (Olympia)"
 
 
@@ -51,3 +52,9 @@ def test_same_place_ids_share_a_name_but_distant_ones_would_not():
         index = net.name_index(line_id)
         for sid in net.lines[line_id].station_ids:
             assert any(sid in ids for ids in index.values()), (line_id, net.stations[sid].name)
+
+
+def test_london_bridge_is_findable_by_its_full_name():
+    net = load_network()
+    assert "london bridge" in net.name_index("jubilee") and "london bridge" in net.name_index("northern")
+    assert not [s for s in net.stations.values() if s.name == "Bridge"]

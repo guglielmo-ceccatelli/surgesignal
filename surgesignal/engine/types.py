@@ -85,7 +85,7 @@ class Hotspot:
     uplift: Range  # disruption-only uplift, fraction of baseline
     pct: Range  # what the dispatcher sees: (1 + uplift) * mult - 1
     mult: float  # weather x event multiplier
-    extra: float  # baseline * pct.mid, used for ranking and car allocation
+    extra: float  # baseline * uplift.mid * mult: demand the disruption adds; ranking + car allocation
     explanation: str
     disruption_keys: tuple[str, ...] = field(default=())
 

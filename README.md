@@ -43,6 +43,8 @@ Logs go to `data/logs/`. Nothing runs while the Mac sleeps: `caffeinate -s` keep
 
 Alerts setup: copy `config.example.yaml` to `config.local.yaml`, add a bot token from @BotFather, start the alerter, send `/whoami` to your bot and paste the chat id back in as `dispatcher_chat_id`, restart, then `/area Clapham Common 5` and `/idle 6`. Supabase is optional: without it, state lives in `data/state/`; with it, run `supabase/schema.sql` once.
 
+Big events: add fixtures to `events.csv` (venue from `surgesignal/data/venues.csv`, name, end time in London time); the alerter re-reads it every minute. Station busyness comes from `surgesignal/data/baseline.json`; rebuild it with `python -m scripts.build_baseline --fetch` (needs `requirements-dev.txt`).
+
 Optional: `TFL_APP_KEY` raises TfL's anonymous rate limit.
 
 ## Data

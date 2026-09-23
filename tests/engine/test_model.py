@@ -146,3 +146,24 @@ def test_far_away_section_is_not_listed_as_a_cause(params, northern_stations, wi
     h = by_id(run(params, northern_stations, [near, far], wide_area))["940GZZLUMDN"]
     assert h.disruption_keys == ("near",)
     assert h.explanation == "Northern line suspended (unplanned)"
+
+
+def test_rain_alone_never_makes_a_big_station_outrank_the_disrupted_ones(params, northern_stations, wide_area):
+    """Regression: ranking by baseline × pct let rain (+25% everywhere) push big stations the
+    disruption doesn't reach (Victoria, Vauxhall) above the disrupted section."""
+    baseline = {sid: 1.0 for sid in northern_stations}
+    baseline["940GZZLUEUS"] = 50.0  # Euston: huge, ~5 km from the section: out of the disruption's reach
+    result = run(params, northern_stations, [make_disruption()], wide_area, Conditions(precip_mm_h=3.0), baseline)
+    assert all(h.station.id in MORDEN_BRANCH for h in result.hotspots[:3])
+    euston = by_id(result)["940GZZLUEUS"]
+    assert euston.pct.mid == pytest.approx(0.25, abs=0.01)  # the rain still shows in its pct...
+    assert euston.extra < 0.05  # ...but it adds almost no disruption demand, so it can't rank
+
+
+def test_ranking_is_by_riders_the_disruption_adds(params, northern_stations, wide_area):
+    """By design: a far busier station just outside the section can outrank a quiet one inside,
+    because it gains more riders in absolute terms (50 × 10% of the effect > 1 × 100%)."""
+    baseline = {sid: 1.0 for sid in northern_stations}
+    baseline["940GZZLUKNG"] = 50.0  # Kennington, ~1.8 km from Stockwell
+    result = run(params, northern_stations, [make_disruption()], wide_area, baseline=baseline)
+    assert result.hotspots[0].station.id == "940GZZLUKNG"
