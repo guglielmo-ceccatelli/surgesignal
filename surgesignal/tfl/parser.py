@@ -214,6 +214,11 @@ def expand_clause(span: str, line_id: str, network: Network, index: dict[str, tu
     return None
 
 
+def section_between(network: Network, line_id: str, a: str, b: str) -> set[str] | None:
+    """Stations from a to b along the line (shortest route slice), for the what-if simulator."""
+    return _shortest_path(network, line_id, (a,), (b,), frozenset())
+
+
 def _endpoints(text: str, index: dict[str, tuple[str, ...]]) -> list[tuple[tuple[str, ...], frozenset[str]]] | None:
     """'Epping / Hainault via Newbury Park' -> [(Epping ids, {}), (Hainault ids, {Newbury Park ids})]."""
     ends = []

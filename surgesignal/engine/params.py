@@ -24,6 +24,8 @@ class Params:
     unplanned_multiplier: float
     planned_multiplier: float
     lambda_km: float
+    lambda_growth: float
+    lambda_growth_min: float
     ramp_min: float
     decay_half_life_min: float
     default_duration_minor_min: float

@@ -36,7 +36,17 @@ lambda_km:
   value: 0.8
   unit: km
   source: assumption
-  note: Spatial decay length, roughly a one-stop walking radius.
+  note: Spatial decay length at the start of a disruption, roughly a one-stop walking radius.
+lambda_growth:
+  value: 1.0
+  unit: added fraction of lambda_km
+  source: assumption
+  note: The ripple. As a disruption drags on, riders walk further to find alternatives, so the affected radius grows; 1.0 means it doubles.
+lambda_growth_min:
+  value: 60
+  unit: minutes
+  source: assumption
+  note: Time for the affected radius to reach its full growth.
 
 ramp_min:
   value: 8

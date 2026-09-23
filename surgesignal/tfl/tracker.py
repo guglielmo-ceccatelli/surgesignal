@@ -57,6 +57,10 @@ class IncidentTracker:
 
         return [self._to_disruption(tr) for tr in self.state.values()]
 
+    def disruptions(self) -> list[Disruption]:
+        """Current view without feeding a poll (for the console)."""
+        return [self._to_disruption(tr) for tr in self.state.values()]
+
     @property
     def _merge(self) -> timedelta:
         return timedelta(minutes=self.p.incident_merge_window_min)

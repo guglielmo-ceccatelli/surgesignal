@@ -26,6 +26,12 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m workers.alerter           # Telegram alerts (needs config.local.yaml)
 ```
 
+Dispatcher console (map, what-if simulator, how it works):
+
+```bash
+.venv/bin/streamlit run console/app.py
+```
+
 What would it have sent? Replay recorded TfL status through the real alerter:
 
 ```bash

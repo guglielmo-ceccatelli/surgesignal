@@ -7,3 +7,4 @@ backup/heartbeat.json
 config.local.yaml
 .env
 .DS_Store
+.playwright-mcp/

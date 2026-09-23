@@ -70,8 +70,11 @@ def test_real_recorded_day_is_silent_and_clean(net, params):
 
 def test_suspension_alerts_once_escalates_and_clears(net, params, suspension):
     result = replay(suspension, net, params, settings(net))
-    assert summary(result) == [(at(5), "new"), (at(20), "edit"), (at(60), "resolved")]
-    new, edit, resolved = result.events
+    events = summary(result)
+    # one alert, the escalation edit, one all-clear; any other edits are the ripple widening the top 3
+    assert events[0] == (at(5), "new") and events[1] == (at(20), "edit") and events[-1] == (at(60), "resolved")
+    assert {kind for _, kind in events[2:-1]} <= {"edit"}
+    new, edit, resolved = result.events[0], result.events[1], result.events[-1]
     assert new.text.startswith("⚠️ Northern line part suspended (unplanned, 18:05).")
     assert "move 1 of your 6 idle cars" in new.text
     assert edit.text.startswith("⚠️ Northern line suspended (unplanned, 18:05).")  # same incident, same t0
@@ -107,7 +110,8 @@ def test_outside_the_area_is_silent(net, params, suspension):
 def test_tfl_error_mid_replay_is_survived(net, params, base, suspension):
     broken = sorted([*suspension, (at(10), b"<html>502 Bad Gateway</html>"), (at(11), northern(base, 3))])
     result = replay(broken, net, params, settings(net))
-    assert [e.kind for e in result.events] == ["new", "error", "edit", "resolved"]
+    kinds = [e.kind for e in result.events]
+    assert kinds[:3] == ["new", "error", "edit"] and kinds[-1] == "resolved" and set(kinds[3:-1]) <= {"edit"}
     assert result.of("error")[0].at == at(10)
 
 

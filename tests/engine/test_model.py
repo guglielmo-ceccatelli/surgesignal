@@ -5,6 +5,7 @@ import pytest
 
 from surgesignal.engine import model
 from surgesignal.engine.geo import distance_to_section
+from surgesignal.engine.model import ripple_lambda
 from surgesignal.engine.types import Conditions, Event, ServiceArea
 from tests.engine.conftest import KENNINGTON, MORDEN_BRANCH, NOW, OVAL, make_disruption
 
@@ -30,7 +31,7 @@ def test_uplift_decays_with_distance_outside_the_section(params, northern_statio
     oval = northern_stations[OVAL]
     dist = distance_to_section(oval, d.affected_station_ids, northern_stations)
     h = by_id(run(params, northern_stations, [d], wide_area))[OVAL]
-    assert h.uplift.mid == pytest.approx(0.325 * math.exp(-dist / params.lambda_km))
+    assert h.uplift.mid == pytest.approx(0.325 * math.exp(-dist / ripple_lambda(d, NOW, params)))
     assert by_id(run(params, northern_stations, [d], wide_area))[KENNINGTON].uplift.mid < h.uplift.mid
 
 
@@ -39,8 +40,9 @@ def test_range_uses_both_severity_and_lambda_factors(params, northern_stations, 
     oval = northern_stations[OVAL]
     dist = distance_to_section(oval, d.affected_station_ids, northern_stations)
     h = by_id(run(params, northern_stations, [d], wide_area))[OVAL]
-    assert h.uplift.low == pytest.approx(0.325 * 0.5 * math.exp(-dist / (0.8 * 0.5)))
-    assert h.uplift.high == pytest.approx(0.325 * 1.5 * math.exp(-dist / (0.8 * 1.5)))
+    lam = ripple_lambda(d, NOW, params)
+    assert h.uplift.low == pytest.approx(0.325 * 0.5 * math.exp(-dist / (lam * 0.5)))
+    assert h.uplift.high == pytest.approx(0.325 * 1.5 * math.exp(-dist / (lam * 1.5)))
     assert h.uplift.low < h.uplift.mid < h.uplift.high
 
 
@@ -169,3 +171,23 @@ def test_ranking_is_by_riders_the_disruption_adds(params, northern_stations, wid
     baseline["940GZZLUKNG"] = 50.0  # Kennington, ~1.8 km from Stockwell
     result = run(params, northern_stations, [make_disruption()], wide_area, baseline=baseline)
     assert result.hotspots[0].station.id == "940GZZLUKNG"
+
+
+def test_ripple_widens_over_the_first_hour_then_holds(params):
+    d = make_disruption()
+    assert ripple_lambda(d, d.t0, params) == pytest.approx(0.8)
+    assert ripple_lambda(d, d.t0 + timedelta(minutes=30), params) == pytest.approx(1.2)
+    assert ripple_lambda(d, d.t0 + timedelta(minutes=60), params) == pytest.approx(1.6)
+    assert ripple_lambda(d, d.t0 + timedelta(minutes=120), params) == pytest.approx(1.6)
+
+
+def test_ripple_freezes_when_resolved(params):
+    d = make_disruption(resolved_at=make_disruption().t0 + timedelta(minutes=15))
+    assert ripple_lambda(d, d.t0 + timedelta(minutes=90), params) == pytest.approx(0.8 * 1.25)
+
+
+def test_ripple_spreads_demand_outward(params, northern_stations, wide_area):
+    d = make_disruption()
+    early = by_id(run(params, northern_stations, [d], wide_area, now=d.t0 + timedelta(minutes=10)))[OVAL]
+    late = by_id(run(params, northern_stations, [d], wide_area, now=d.t0 + timedelta(minutes=60)))[OVAL]
+    assert late.uplift.mid > 1.5 * early.uplift.mid  # Oval, just outside the section, feels more later

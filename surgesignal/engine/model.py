@@ -1,6 +1,8 @@
 """The factor engine: pure function from (disruptions, conditions, params) to ranked hotspots.
 
-    uplift(s) = Σ_d  sev(d) · plan_mult(d) · scale(d) · exp(−dist(s,d)/λ) · g(d, now)
+    uplift(s) = Σ_d  sev(d) · plan_mult(d) · scale(d) · exp(−dist(s,d)/λ(d, now)) · g(d, now)
+    λ(d, now) = λ0 · (1 + growth · min(minutes active / growth_min, 1))   ← the ripple: the affected
+                area widens as a disruption drags on (riders walk further for alternatives)
     mult(s)   = weather_mult × event_mult(s)
     pct(s)    = (1 + uplift) × mult − 1             ← shown to the dispatcher
     extra(s)  = baseline(s) × uplift.mid × mult     ← ranking + car allocation: demand the DISRUPTION
@@ -46,7 +48,14 @@ def disruption_term(d: Disruption, station: Station, stations: Mapping[str, Stat
     sev = p.severity(d.severity_class) * sev_factor * d.severity_scale
     sev *= p.unplanned_multiplier if d.is_unplanned else p.planned_multiplier
     dist = distance_to_section(station, d.affected_station_ids, stations)
-    return sev * math.exp(-dist / (p.lambda_km * lambda_factor)) * g(d, now, p)
+    return sev * math.exp(-dist / (ripple_lambda(d, now, p) * lambda_factor)) * g(d, now, p)
+
+
+def ripple_lambda(d: Disruption, now: datetime, p: Params) -> float:
+    """Spatial decay length for this disruption now: grows while it lasts, frozen once resolved."""
+    until = min(now, d.resolved_at) if d.resolved_at else now
+    active_min = max(0.0, minutes_between(d.t0, until))
+    return p.lambda_km * (1 + p.lambda_growth * min(active_min / p.lambda_growth_min, 1.0))
 
 
 def uplift(station: Station, disruptions: Iterable[Disruption], stations: Mapping[str, Station],
