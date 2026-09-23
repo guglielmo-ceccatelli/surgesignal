@@ -1,0 +1,147 @@
+# SurgeSignal model parameters: the single source of truth (eng review 4A).
+# The engine, the console's "how this works" panel, the write-up table and the tests all
+# read this file. Every entry needs value, unit and source; "assumption" means not yet
+# supported by data, and the backtest decides whether it stays.
+
+severity_suspended:
+  value: 0.25
+  unit: fraction of baseline
+  source: assumption
+  note: Scaled so an unplanned suspension gives ~+33% at affected stations in dry, normal conditions, close to the ~+30% ride-hailing uplift reported for rail disruptions (arXiv 2202.09466, Chicago).
+severity_part_suspended:
+  value: 0.20
+  unit: fraction of baseline
+  source: assumption
+severity_severe:
+  value: 0.12
+  unit: fraction of baseline
+  source: assumption
+severity_minor:
+  value: 0.03
+  unit: fraction of baseline
+  source: assumption
+
+unplanned_multiplier:
+  value: 1.3
+  unit: multiplier on severity
+  source: assumption
+  note: Unplanned disruptions catch riders mid-journey.
+planned_multiplier:
+  value: 0.6
+  unit: multiplier on severity
+  source: assumption
+  note: Riders have usually re-routed in advance.
+
+lambda_km:
+  value: 0.8
+  unit: km
+  source: assumption
+  note: Spatial decay length, roughly a one-stop walking radius.
+
+ramp_min:
+  value: 8
+  unit: minutes
+  source: assumption
+  note: Time for demand to build after the disruption starts.
+decay_half_life_min:
+  value: 15
+  unit: minutes
+  source: assumption
+  note: How fast demand falls back after service resumes.
+
+default_duration_minor_min:
+  value: 20
+  unit: minutes
+  source: assumption
+default_duration_severe_min:
+  value: 40
+  unit: minutes
+  source: assumption
+default_duration_part_suspended_min:
+  value: 60
+  unit: minutes
+  source: assumption
+default_duration_suspended_min:
+  value: 90
+  unit: minutes
+  source: assumption
+
+dry_threshold_mm_h:
+  value: 0.1
+  unit: mm/h
+  source: assumption
+heavy_rain_threshold_mm_h:
+  value: 2.0
+  unit: mm/h
+  source: assumption
+light_rain_multiplier:
+  value: 1.1
+  unit: multiplier
+  source: assumption
+heavy_rain_multiplier:
+  value: 1.25
+  unit: multiplier
+  source: assumption
+cold_threshold_c:
+  value: 3.0
+  unit: °C
+  source: assumption
+cold_bonus:
+  value: 0.05
+  unit: added to weather multiplier
+  source: assumption
+
+event_radius_km:
+  value: 1.5
+  unit: km
+  source: assumption
+event_window_min:
+  value: 60
+  unit: minutes
+  source: assumption
+  note: An event counts if it ends within this window from now.
+event_medium_capacity:
+  value: 10000
+  unit: people
+  source: assumption
+event_medium_multiplier:
+  value: 1.15
+  unit: multiplier
+  source: assumption
+event_large_capacity:
+  value: 40000
+  unit: people
+  source: assumption
+event_large_multiplier:
+  value: 1.3
+  unit: multiplier
+  source: assumption
+
+range_low_factor:
+  value: 0.5
+  unit: multiplier on severity and lambda
+  source: assumption
+  note: Low end of every range; narrowed only once the backtest supports it.
+range_high_factor:
+  value: 1.5
+  unit: multiplier on severity and lambda
+  source: assumption
+
+alert_threshold_uplift:
+  value: 0.15
+  unit: fraction of baseline (disruption only)
+  source: assumption
+  note: Weather or events alone never trigger an alert.
+sizing_k:
+  value: 0.5
+  unit: cars per (idle car × demand uplift)
+  source: assumption
+  note: Tuned through operator feedback.
+top_n:
+  value: 3
+  unit: stations
+  source: design choice
+default_service_radius_km:
+  value: 5
+  unit: km
+  source: design choice

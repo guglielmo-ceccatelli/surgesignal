@@ -1,0 +1,40 @@
+# Backup TfL logger (eng review OV#9): if the home machine sleeps or drops Wi-Fi, these
+# snapshots fill the gap. Same code path as the home logger (workers/logger.py + RawLog),
+# change-only, so commits happen only when TfL's status or disruptions actually change.
+# BikePoint is NOT backed up here: ~22 MB/day would bloat the public repo.
+name: tfl-snapshot
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # GitHub may delay scheduled runs; gaps of 5-15 min are expected
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tfl-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Poll TfL once
+        env:
+          TFL_APP_KEY: ${{ secrets.TFL_APP_KEY }}
+        run: python -m workers.logger --once --feeds status,disruption --data-dir backup
+      - name: Commit changed snapshots
+        run: |
+          git config user.name "surgesignal-bot"
+          git config user.email "surgesignal-bot@users.noreply.github.com"
+          git add backup/raw
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "data: TfL snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
+          git pull --rebase --quiet
+          git push
