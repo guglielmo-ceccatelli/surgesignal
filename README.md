@@ -26,6 +26,13 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m workers.alerter           # Telegram alerts (needs config.local.yaml)
 ```
 
+What would it have sent? Replay recorded TfL status through the real alerter:
+
+```bash
+.venv/bin/python -m scripts.replay --area "Clapham Common" --radius 5 --idle 6
+.venv/bin/python -m scripts.replay --src backup/raw/status --date 2026-09-23
+```
+
 Run as background services (macOS; restart on crash, start at login, watchdog every 5 min):
 
 ```bash
