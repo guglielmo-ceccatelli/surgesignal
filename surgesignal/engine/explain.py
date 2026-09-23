@@ -20,6 +20,9 @@ SEVERITY_WORDS = {
     "minor": "minor delays",
 }
 MAX_PARTS = 3
+# Contributions below this (fraction of baseline) are left out of explanations and of a
+# hotspot's disruption_keys: a section 20 km away adds ~e^-25, which is noise, not a cause.
+NEGLIGIBLE_UPLIFT = 0.005
 
 
 def disruption_phrase(d: Disruption) -> str:
@@ -40,9 +43,13 @@ def weather_phrase(c: Conditions, p: Params) -> str | None:
 
 def explain(station: Station, disruptions: Sequence[Disruption], terms: Mapping[str, float],
             c: Conditions, w_mult: float, e_mult: float, p: Params) -> str:
-    scored: list[tuple[float, str]] = [
-        (terms.get(d.key, 0.0), disruption_phrase(d)) for d in disruptions if terms.get(d.key, 0.0) > 0
-    ]
+    # Merge by phrase: two sections of the same line with the same severity read as one cause.
+    by_phrase: dict[str, float] = {}
+    for d in disruptions:
+        term = terms.get(d.key, 0.0)
+        if term >= NEGLIGIBLE_UPLIFT:
+            by_phrase[disruption_phrase(d)] = by_phrase.get(disruption_phrase(d), 0.0) + term
+    scored: list[tuple[float, str]] = [(v, k) for k, v in by_phrase.items()]
     wp = weather_phrase(c, p)
     if wp and w_mult > 1:
         scored.append((w_mult - 1, wp))

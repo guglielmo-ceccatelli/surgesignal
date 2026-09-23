@@ -137,6 +137,16 @@ sizing_k:
   unit: cars per (idle car × demand uplift)
   source: assumption
   note: Tuned through operator feedback.
+incident_merge_window_min:
+  value: 10
+  unit: minutes
+  source: design choice
+  note: A section that clears and returns within this window is the same incident (absorbs status flapping).
+resolved_retention_min:
+  value: 90
+  unit: minutes
+  source: design choice
+  note: Resolved incidents stay in the engine while demand decays (6 half-lives ≈ 1.6%).
 top_n:
   value: 3
   unit: stations

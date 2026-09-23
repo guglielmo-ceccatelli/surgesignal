@@ -21,7 +21,7 @@ import math
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 
-from surgesignal.engine.explain import explain
+from surgesignal.engine.explain import NEGLIGIBLE_UPLIFT, explain
 from surgesignal.engine.geo import distance_to_section, haversine_km, in_service_area
 from surgesignal.engine.params import Params
 from surgesignal.engine.timeprofile import g, minutes_between
@@ -107,7 +107,7 @@ def run(stations: Mapping[str, Station], disruptions: Iterable[Disruption], cond
         if pct.mid <= 0:
             continue
         terms = {d.key: disruption_term(d, station, stations, now, p) for d in sectional}
-        contributing = tuple(k for k, v in sorted(terms.items(), key=lambda kv: -kv[1]) if v > 0)
+        contributing = tuple(k for k, v in sorted(terms.items(), key=lambda kv: -kv[1]) if v >= NEGLIGIBLE_UPLIFT)
         hotspots.append(Hotspot(
             station=station,
             uplift=u,

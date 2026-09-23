@@ -64,7 +64,7 @@ The operator's firm **does nothing proactive**. It finds out about disruptions w
    - **Expand A–B ranges along TfL `/Line/{id}/Route/Sequence`**, branch-aware: "between Stockwell and Morden" → all 10 stations from Stockwell to Morden, not just the 2 endpoints. Golden tests cover Northern and District branch cases (OV#1).
    - **Map every TfL `statusSeverity` code** to a severity class, with an explicit default (OV#2).
    - **Line-wide** disruption (no section) → alert says "line-wide, no station suggestion" rather than ranking the busiest stations. **Zero name matches** on a sectional description → whole-line at half severity, `area_uncertain = true`, and a builder ping with the raw text (5A, OV#2).
-   - **Incident key** is ours, not TfL's: `hash(line, severity class, parsed section)`; `t0` = first poll that saw it (OV#3).
+   - **Incident key** is ours, not TfL's: `hash(line, parsed section)`. Severity is deliberately *not* in the key, so a minor → severe escalation is an **update** of one incident rather than a new alert (the lifecycle below requires this). `t0` = TfL's `validityPeriods.fromDate` when given, else the first poll that saw it (OV#3).
    - `is_unplanned` = TfL category `RealTime` vs `PlannedWork`.
 3. **Engine v1:** baseline × disruption uplift only (the formula below, with weather and event multipliers fixed at 1).
 4. **Telegram alert bot** to the dispatcher, with the alert lifecycle below.
@@ -295,7 +295,7 @@ Launch A tonight, B in parallel. Merge, then C, then D. Conflict risk: C and D b
 - [x] **T1 (P1, human: ~1h / CC: ~10min)**: logger: raw TfL logger (status + disruption every 60 s, BikePoint every 5 min, change-only gzip, heartbeat). Done Sep 23: `workers/logger.py`, `surgesignal/store/rawlog.py`, 18 tests passing, running since 15:46 UTC.
 - [~] **T2 (P1, human: ~1h / CC: ~10min)**: backup GitHub Actions raw-snapshot job (*/5). Written: `.github/workflows/snapshot.yml` (status + disruption only; BikePoint excluded to keep the repo small) + `ci.yml`. **Blocked on the public GitHub repo existing.**
 - [x] **T3 (P1, human: ~1d / CC: ~30min)**: engine: pure `model/geo/timeprofile/sizing/explain` + `params.yaml` + golden test. Done Sep 23: 72 engine tests, golden example reproduced from real TfL coordinates.
-- [ ] **T4 (P1, human: ~1.5d / CC: ~45min)**: parser: normalisation, aliases, Route/Sequence expansion, severity map, incident key, fallbacks. Verify: `pytest tests/tfl`.
+- [x] **T4 (P1, human: ~1.5d / CC: ~45min)**: parser: normalisation, same-place name groups, Route/Sequence expansion (branch- and via-aware), full statusSeverity map, incident key, fallbacks, incident tracker (t0 / resolved / flap merge / persistable). Done Sep 23: `surgesignal/tfl/`, `surgesignal/data/network.json` (315 stations, 12 lines), 43 tests incl. today's real Central line disruption replayed end to end.
 - [ ] **T5 (P1, human: ~1d / CC: ~30min)**: lifecycle (pure) + `alerts` table + Telegram I/O + allowlist. Verify: `pytest tests/alerts tests/bot`.
 - [ ] **T6 (P1, human: ~4h / CC: ~20min)**: split logger/alerter processes under launchd/systemd + heartbeat ping. Verify: kill -9 the logger → restarts; stop it 10 min → ping.
 - [ ] **T7 (P1, human: ~4h / CC: ~20min)**: replay E2E tests + GitHub Actions CI. Verify: CI green.

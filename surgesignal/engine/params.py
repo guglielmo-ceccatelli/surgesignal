@@ -46,6 +46,8 @@ class Params:
     range_high_factor: float
     alert_threshold_uplift: float
     sizing_k: float
+    incident_merge_window_min: float
+    resolved_retention_min: float
     top_n: int
     default_service_radius_km: float
 

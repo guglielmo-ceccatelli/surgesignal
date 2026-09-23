@@ -138,3 +138,11 @@ def test_unknown_affected_station_id_fails_loudly(params, northern_stations, wid
     d = make_disruption(affected_station_ids=("940GZZLUXXX",))
     with pytest.raises(KeyError):
         run(params, northern_stations, [d], wide_area)
+
+
+def test_far_away_section_is_not_listed_as_a_cause(params, northern_stations, wide_area):
+    near = make_disruption(key="near")
+    far = make_disruption(key="far", affected_station_ids=("940GZZLUKNG",))  # Kennington, ~10 km from Morden
+    h = by_id(run(params, northern_stations, [near, far], wide_area))["940GZZLUMDN"]
+    assert h.disruption_keys == ("near",)
+    assert h.explanation == "Northern line suspended (unplanned)"
