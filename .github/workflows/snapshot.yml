@@ -1,12 +1,13 @@
-# Backup TfL logger (eng review OV#9): if the home machine sleeps or drops Wi-Fi, these
-# snapshots fill the gap. Same code path as the home logger (workers/logger.py + RawLog),
-# change-only, so commits happen only when TfL's status or disruptions actually change.
-# BikePoint is NOT backed up here: ~22 MB/day would bloat the public repo.
+# Cloud data collection, independent of the Mac (eng review OV#9):
+#   backup/  TfL line status + disruptions, change-only (same code as the Mac's logger)
+#   bikes/   bike-dock occupancy summarised per station (~1 KB per snapshot; the backtest proxy)
+# Written to the separate `data` branch so bot commits never touch `main`.
+# GitHub may delay scheduled runs; gaps of 5-15 min are expected and fine for T8/T11.
 name: tfl-snapshot
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # GitHub may delay scheduled runs; gaps of 5-15 min are expected
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -19,22 +20,35 @@ concurrency:
 jobs:
   snapshot:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
+      - name: Code (main)
+        uses: actions/checkout@v4
+      - name: Data branch
+        uses: actions/checkout@v4
+        with:
+          ref: data
+          path: databranch
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Poll TfL once
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: TfL status + disruptions (change-only)
         env:
           TFL_APP_KEY: ${{ secrets.TFL_APP_KEY }}
-        run: python -m workers.logger --once --feeds status,disruption --data-dir backup
-      - name: Commit changed snapshots
+        run: python -m workers.logger --once --feeds status,disruption --data-dir databranch/backup
+      - name: Bike docks per station
+        env:
+          TFL_APP_KEY: ${{ secrets.TFL_APP_KEY }}
+        run: python -m workers.bike_summary --out databranch/bikes || echo "bike summary skipped this run"
+      - name: Commit to data branch
+        working-directory: databranch
         run: |
           git config user.name "surgesignal-bot"
           git config user.email "surgesignal-bot@users.noreply.github.com"
-          git add backup/raw
+          git add backup/raw bikes 2>/dev/null || true
           if git diff --cached --quiet; then echo "no change"; exit 0; fi
-          git commit -m "data: TfL snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
-          git pull --rebase --quiet
-          git push
+          git commit -q -m "data: $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3; do git pull -q --rebase origin data && git push -q origin HEAD:data && exit 0; sleep 5; done
+          exit 1
