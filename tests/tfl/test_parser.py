@@ -185,3 +185,10 @@ def test_direction_suffix_is_ignored(net):
     inc, problems = one(net, status("district", "No service between Embankment and Whitechapel eastbound only, while we fix a points failure.", code=6))
     assert problems == [] and {"Embankment", "Tower Hill", "Whitechapel"} <= set(names(net, inc))
     assert inc.severity_class == "part_suspended"
+
+
+def test_following_clause_is_the_cause_not_the_place(net):
+    """Real TfL text, 24 Sep: the section ends before 'following'."""
+    inc, problems = one(net, status("northern", "Northern Line: Minor delays between Camden Town and Kennington following "
+                                                "a late finish of engineering work. GOOD SERVICE on the rest of the line.", code=9))
+    assert problems == [] and {"Camden Town", "Euston", "Kennington"} <= set(names(net, inc))
