@@ -311,6 +311,102 @@ Launch A tonight, B in parallel. Merge, then C, then D. Conflict risk: C and D b
 - [ ] **T11 (P2, human: ~1d / CC: ~30min)**: offline backtest (engine vs 2 naive rules) → `backtest_results`.
 - [x] **T12 (P2, human: ~4h / CC: ~20min)**: planned-works staffing message, extended to strikes and big events (user decision, Sep 23). Done: `surgesignal/alerts/lookahead.py`: daily look-ahead (default 18:00 London, `/lookahead HH:MM|off`) and `/week`, from TfL's 7-day status (`/Line/{ids}/Status/{start}/to/{end}`; the mode form 404s) plus `events.csv`. Each planned closure is run through the same engine every 30 min to find its busiest moment in the area; sections of one TfL status are merged into one item. Sent only when something is planned; failures reported, never block live alerts. Found on real data and fixed, all also affecting live alerts: Waterloo & City's weekend "Planned Closure" (category `Information`) would have alerted every weekend; "between 0210 and 0530" was read as stations; "Use DISTRICT LINE trains between…" and "trains continue to operate between…" were read as closed sections; "(via Newbury Park)" in brackets wasn't recognised; a "No service between…" section under a "Minor Delays" headline is now ≥ part suspended; "Elizabeth line line"; the same place listed three times. Event window changed: from 30 min before an event ends to 45 min after (was the hour before, which stopped at the final whistle).
 
+## Console redesign for EurekaDev (design review 2026-09-24)
+
+Audience: an **Economics-category judge with about 2 minutes** (via the video and a public link), then a dispatcher. Visual system: see `DESIGN.md` (editorial light: off-white, ink, one demand-red accent, IBM Plex Serif + Sans, cardless). Decisions: 1A–7C, all accepted as recommended.
+
+### Information architecture (1A, 1B)
+
+```
+┌ ● SurgeSignal ───────────────────────────────────────────────────────────────┐
+│ H1 (Plex Serif): "When the Tube fails, Uber surges. Be there first, at a fixed fare."│
+│ one line: TfL reports a disruption → SurgeSignal forecasts where bookings form →   │
+│           you move cars before the surge          (one typographic line, no cards) │
+│ FIGURE STRIP: Uber in disruptions 1.5–2.5× [EVIDENCE] │ Your fare: fixed [ESTIMATE] │
+│               Pickup ~5 min if cars are placed early vs ~20 [ESTIMATE]            │
+├ [Overview] [Try a disruption] [The economics] [How it works] [Evidence] [Live] ────┤
+```
+
+| Tab | One job | Contents, top to bottom |
+|---|---|---|
+| **Overview** (lands here) | Prove it on a real event | `REPLAY · District line · recorded 23 Sep 19:45` badge → 4 ripple maps (+8/+15/+30/+60) with the section drawn beside the phone alert → caption naming the top stations → "Try your own disruption →" |
+| **Try a disruption** | Let the judge test it | 3 preset pills → the same maps + phone/action card → "Explore" single map with time pills → a "Customise" expander (line, from/to grouped by branch, severity, planned, weather, day/time, centre, radius, idle cars). No sidebar. |
+| **The economics** | Show the money logic | "Why early information is worth money" (3 lines, Grossman–Stiglitz) → surge vs fixed fare → pickup-time gap → calculator (7A) → value per week |
+| **How it works** | Honest mechanism | signal → ripple → action (one line) → the model in words → formulas in an expander → parameter table with EVIDENCE/ESTIMATE badges → data sources and licences → limitations |
+| **Evidence** | What's proven so far | backtest chart (7C) or real progress "N disruptions logged, target 20" → driver check-ins → the honest status line |
+| **Live** (last) | The dispatcher's view | `LIVE · TfL checked 40 s ago` → disruptions (line-wide ones flagged "not mapped") → maps + action card → check-ins |
+
+### Interaction states (2A, 2B)
+
+| Feature | Loading | Empty | Error | Success | Partial / stale |
+|---|---|---|---|---|---|
+| Overview | "Loading the Tube network…" | n/a: always the committed replay | replay file missing → first preset | replay maps + phone | — |
+| Try a disruption | cached after the first render | "Doesn't reach this area" + [Centre on this disruption] | "Pick two stations on one route"; From/To grouped by branch | maps + action card | — |
+| The economics | — | — | invalid input → inline hint, last valid result kept | £/week + breakdown | every input badged EVIDENCE/ESTIMATE; defaults marked "placeholder until operator data" |
+| Evidence | — | progress "N logged, target 20" | — | chart | "results pending" wording if T11 isn't done by Oct 20 |
+| Live, local | spinner | "Quiet now · last disruption: X, N h ago · [Replay it]" + count logged since 23 Sep | exception → recorded snapshot + banner "Live feed unavailable" | maps + action card | "TfL checked N s ago" from the alerter heartbeat; red banner if > 3 min |
+| Live, deployed | — | shows the latest **recorded** snapshot with a `RECORDED` badge + "the live feed runs on the dispatcher's machine" | same | — | never a shell command or traceback |
+
+### Journey (3A, 3B)
+
+| Step | Judge does | Should feel | Supported by |
+|---|---|---|---|
+| 1 | opens the link (5 s) | "I get it: Uber surges, this wins" | H1 claim + figure strip |
+| 2 | scans the Overview | "that's real, and it spreads" | REPLAY badge, section in ink, 4 ripple frames, one shared scale |
+| 3 | reads the phone | "a dispatcher would act on this" | Telegram bubble led by "Move 2 of 6 idle cars" |
+| 4 | tries a preset (5 min) | "it responds to what I pick" | pills + Customise; same maps + card |
+| 5 | opens The economics | "the money logic holds" | calculator with labelled inputs |
+| 6 | How it works / Evidence | "it's honest about what it knows" | mechanism before formulas; badges; progress or chart |
+
+Ripple view (3A): **small multiples first** (4 maps side by side, shared colour scale and zoom, section + dashed area circle drawn on each), with one larger "Explore" map with time pills below. No autoplay dependence. Alert (3B): **phone frame + Telegram bubble** beside the maps (2:1 columns), the same card on Live.
+
+### Economics calculator (7A)
+
+Inputs (each badged): fixed fare £ [ESTIMATE until the operator's real fare], Uber surge 1.5–2.5× [EVIDENCE: Time Out, "Uber prices up by 150 percent on day one of London's Tube strike" (check the date before citing); Uber UK blog on Tube-strike surge pricing], pickup with/without early positioning 5 / 20 min [ESTIMATE], qualifying alerts per week [ESTIMATE until T8 on Sep 30, then EVIDENCE], extra jobs won per alert [ESTIMATE]. Outputs: rider's saving vs Uber per trip = fare × (surge − 1); extra revenue per week = alerts × jobs × fare; per year = ×52. Framing: Grossman & Stiglitz (1980): information is costly and whoever acts on it first captures the rent; SurgeSignal makes a free public signal (TfL status) actionable minutes earlier.
+
+### Reproducible demo (7B)
+
+Presets (fixed dates, deep-linkable with `?scenario=`):
+1. `northern-rain`: Northern line suspended Stockwell–Morden, unplanned, **Fri 25 Sep 2026 18:00**, heavy rain.
+2. `central-weekend`: Central line part suspended Liverpool Street–Woodford, planned, **Sat 26 Sep 2026 14:00** (a real planned closure).
+3. `district-evening`: District line severe delays Wimbledon–Earl's Court, unplanned, **Wed 23 Sep 2026 19:45** (mirrors the recorded event).
+
+### Evidence tab (7C)
+
+Final chart: horizontal bars for three strategies (SurgeSignal top 3 · closed stations · busiest stations), with bike-dock movement uplift vs matched normal times, an interval, and "n = events". Until then: a progress bar "N of 20 qualifying disruptions logged", with N computed from the data branch, plus check-ins.
+
+### Responsive and accessibility (6A)
+
+1440 px desktop and 1920×1080 video are the targets. Below about 640 px columns stack (4 maps vertical, phone above maps). Every map has a caption naming the top 3 stations and their %, so colour is never the only channel. Text ≥ 16 px; contrast ratios per DESIGN.md (all ≥ 4.5:1). No required input in a sidebar.
+
+### NOT in scope (design)
+- AI-generated mockups: the designer needs an OpenAI key; the built page, screenshotted, stands in for them.
+- Truly live data online (Supabase): deferred, see TODOS.md; online Live shows a labelled recording.
+- Autoplay animation: Streamlit can't; small multiples replace it.
+- Dark theme: rejected for readability and cliché (4A).
+- A custom domain beyond `surgesignal.streamlit.app`.
+
+### What already exists (reuse)
+`surgesignal/console.py` (`whatif`, `live_view`, `params_rows`, `ordered_stations`), `surgesignal/replay.py` (replaying snapshots through the real alerter), `alerts/format.py` (the exact alert text for the phone), `inputs/baseline.py` (peak labels), the heartbeat files (Live staleness), `scripts/replay.py` (recorded data → alerts).
+
+### Console implementation tasks (from the design review)
+- [x] **D1 (P1, human ~2h / CC ~10min)**: theme: `.streamlit/config.toml` + one CSS block from DESIGN.md tokens (Plex Serif/Sans, off-white, demand red). Verify: screenshot matches DESIGN.md.
+- [x] **D2 (P1, human ~1d / CC ~40min)**: Overview: H1 claim, one-line mechanism, figure strip, **real District replay (23 Sep)** from committed snapshots in `surgesignal/data/replays/`. Verify: renders deployed with no `data/`.
+- [x] **D3 (P1, human ~4h / CC ~30min)**: ripple maps: 4 small multiples + Explore map; section in ink, area circle (a thin grey line: Plotly map lines can't dash), shared scale and zoom; caption with top stations.
+- [x] **D4 (P1, human ~3h / CC ~15min)**: phone frame + Telegram bubble + action card ("Move N of M idle cars"), reused on Live.
+- [x] **D5 (P1, human ~4h / CC ~25min)**: Live states: heartbeat age, stale banner > 3 min, recorded fallback with badge, "Quiet now · [Replay it]" empty state, no tracebacks.
+- [x] **D6 (P2, human ~3h / CC ~15min)**: Try a disruption: 3 fixed-date presets as pills, `?scenario=` deep links, Customise expander; remove the sidebar.
+- [x] **D7 (P2, human ~4h / CC ~25min)**: The economics: Grossman–Stiglitz framing + labelled calculator (`surgesignal/economics.py`, tested).
+- [x] **D8 (P2, human ~2h / CC ~10min)**: How it works reordered: mechanism first, formulas in an expander, EVIDENCE/ESTIMATE badge column.
+- [x] **D9 (P2, human ~2h / CC ~15min)**: Evidence: "N of 20 logged" progress from recorded data, check-ins, chart spec ready for T11.
+- [x] **D10 (P2, human ~30min / CC ~5min)**: pin streamlit/plotly versions; cache the what-if; spinner copy.
+
+Built 2026-09-24. Found while building, beyond the spec:
+- **Lazy tabs** (`st.tabs(on_change="rerun")`): only the open tab runs, so the page never holds ten WebGL maps at once.
+- **Below-threshold state**: when demand rises but stays under the alert threshold (planned closures, minor delays) the action card says "No alert: hold position" and no phone message is shown, since the bot wouldn't send one. The Central line weekend preset shows this on purpose.
+- **Colour floor**: the demand scale never tops out below 25%, so +2% reads pale rather than as a crisis.
+- `SURGESIGNAL_DATA` overrides the data folder so tests render the public copy (no `data/`).
+
 ## Sources
 
 - arXiv 2202.09466, *Does ridesourcing respond to unplanned rail disruptions? A natural experiment analysis of mobility resilience and disparity* (Chicago): https://arxiv.org/pdf/2202.09466
@@ -325,12 +421,11 @@ Launch A tonight, B in parallel. Merge, then C, then D. Conflict risk: C and D b
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
-| Codex Review | `/codex review` | Independent 2nd opinion | 1 | ISSUES FOUND → all folded (Claude subagent; Codex auth expired) | 10 findings, 10 resolved |
+| Codex Review | `/codex review` | Independent 2nd opinion | 1 | ISSUES FOUND → folded (Claude subagent) | 10 findings, 10 resolved |
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR (PLAN) | 19 issues, 0 critical gaps |
-| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR (FULL) | score: 4/10 → 8/10, 11 decisions |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 
-- **CROSS-MODEL:** The outside voice found 3 parser bugs the section review missed (range expansion, severity map, incident key). It also challenged 2 decisions: infra weight (resolved by trimming 2A) and BikePoint storage (7A replaced by local parquet).
-- **VERDICT:** ENG CLEARED — ready to implement.
+- **VERDICT:** ENG + DESIGN CLEARED — console redesign (D1–D10) ready to implement.
 
 NO UNRESOLVED DECISIONS

@@ -14,6 +14,20 @@
 **Priority:** P3
 **Depends on:** Parser route-sequence expansion (outside voice #1)
 
+## Console
+
+### Live data on the public website (Supabase)
+
+**What:** The alerter also writes its state to Supabase; the hosted console's Live tab reads the public read-only views instead of showing a labelled recording.
+
+**Why:** A live demo on the public link is stronger evidence than a recording, and makes the online Live tab useful to a dispatcher.
+
+**Context:** Deferred in the design review on Sep 24, 2026 (decision 2A: online Live shows the latest recorded snapshot with a RECORDED badge). `supabase/schema.sql` (tables + RLS + `public_disruptions` / `public_checkins` views) and `SupabaseStore` already exist; the console needs an anon-key reader for the two views and the heartbeat. Start by creating the Supabase project, running the schema, and putting the keys in `config.local.yaml` and Streamlit secrets.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** A Supabase project (your account)
+
 ## Product
 
 ### Fixed-Fare Capture (Approach C)

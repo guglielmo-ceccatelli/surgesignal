@@ -1,0 +1,21 @@
+# SurgeSignal theme: tokens from DESIGN.md (editorial light; one accent = demand).
+[theme]
+base = "light"
+primaryColor = "#C8321E"
+backgroundColor = "#FAFAF7"
+secondaryBackgroundColor = "#F0EFEA"
+textColor = "#14161A"
+borderColor = "#E2E0D8"
+font = "IBM Plex Sans:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap, Helvetica Neue, Arial, sans-serif"
+headingFont = "IBM Plex Serif:https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@600&display=swap, Georgia, serif"
+headingFontWeights = 600
+codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&display=swap, monospace"
+baseRadius = "6px"
+baseFontSize = 16
+showSidebarBorder = false
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
