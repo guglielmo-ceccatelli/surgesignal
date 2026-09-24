@@ -171,3 +171,17 @@ def test_duplicate_sections_keep_the_most_severe(net):
 
 def test_unknown_line_is_skipped(net):
     assert parse_status(status("dlr", "Severe delays between A and B.", code=6), net).incidents == []
+
+
+# ---- wording seen in real TfL text on 23 Sep 2026 ----------------------------------------
+
+
+def test_to_instead_of_and(net):
+    inc, problems = one(net, status("district", "SEVERE DELAYS between Earl's Court to Ealing Broadway / Richmond.", code=6))
+    assert problems == [] and {"Earl's Court", "Ealing Broadway", "Richmond", "Kew Gardens"} <= set(names(net, inc))
+
+
+def test_direction_suffix_is_ignored(net):
+    inc, problems = one(net, status("district", "No service between Embankment and Whitechapel eastbound only, while we fix a points failure.", code=6))
+    assert problems == [] and {"Embankment", "Tower Hill", "Whitechapel"} <= set(names(net, inc))
+    assert inc.severity_class == "part_suspended"

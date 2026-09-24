@@ -6,6 +6,10 @@ The parser sees one poll at a time; the engine needs t0 and resolved_at. The tra
                                                                       └─ no ──► resolved_at = now
     resolved and reappears within incident_merge_window_min ─► same incident, original t0 (flap)
     resolved longer than resolved_retention_min ─► forgotten
+    NEW key whose stations overlap a current (or just-resolved) incident on the same line by
+      ≥ CONTINUATION_OVERLAP of the smaller set ─► that incident continues under its old key.
+      TfL rewords sections as a disruption evolves ("Wimbledon–Earl's Court" → "Earl's Court to
+      Ealing Broadway / Richmond"); without this each rewording was a brand-new alert.
 
 State round-trips through to_dict()/from_dict() so the alerter can persist it (eng review 3A)
 and a restart doesn't reset t0 or re-announce incidents.
@@ -29,15 +33,28 @@ class Tracked:
     resolved_at: datetime | None = None
 
 
+CONTINUATION_OVERLAP = 0.5
+
+
+def _overlap(a: tuple[str, ...], b: tuple[str, ...]) -> float:
+    """|A ∩ B| / min(|A|, |B|): forgiving when a section grows or shrinks."""
+    if not a or not b:
+        return 0.0
+    return len(set(a) & set(b)) / min(len(set(a)), len(set(b)))
+
+
 class IncidentTracker:
-    def __init__(self, params: Params, state: dict[str, Tracked] | None = None) -> None:
+    def __init__(self, params: Params, state: dict[str, Tracked] | None = None,
+                 aliases: dict[str, str] | None = None) -> None:
         self.p = params
         self.state: dict[str, Tracked] = dict(state or {})
+        self.aliases: dict[str, str] = dict(aliases or {})  # parser key -> the incident it continues
 
     def update(self, incidents: list[Incident], now: datetime) -> list[Disruption]:
         """Feed one poll's incidents; return every disruption the engine should score now."""
         if now.tzinfo is None:
             raise ValueError("now must be timezone-aware (UTC)")
+        incidents = self._continue_existing(incidents, now)
         seen = {inc.key for inc in incidents}
 
         for inc in incidents:
@@ -56,6 +73,30 @@ class IncidentTracker:
                 del self.state[key]
 
         return [self._to_disruption(tr) for tr in self.state.values()]
+
+    def _continue_existing(self, incidents: list[Incident], now: datetime) -> list[Incident]:
+        """Re-key incidents that continue an existing one (see module docstring)."""
+        out: list[Incident] = []
+        claimed: set[str] = set()
+        for inc in incidents:
+            key = self.aliases.get(inc.key, inc.key)
+            if key not in self.state or key in claimed:
+                best, best_overlap = None, 0.0
+                for k, tr in self.state.items():
+                    recent = tr.resolved_at is None or now - tr.resolved_at <= self._merge
+                    if k in claimed or not recent or tr.incident.line != inc.line or k == inc.key:
+                        continue
+                    o = _overlap(tr.incident.station_ids, inc.station_ids)
+                    if o >= CONTINUATION_OVERLAP and o > best_overlap:
+                        best, best_overlap = k, o
+                if best is not None:
+                    self.aliases[inc.key] = best
+                    key = best
+            if key in claimed:  # two sections can't both be the same incident in one poll
+                key = inc.key
+            claimed.add(key)
+            out.append(replace(inc, key=key) if key != inc.key else inc)
+        return out
 
     def disruptions(self) -> list[Disruption]:
         """Current view without feeding a poll (for the console)."""
@@ -94,7 +135,11 @@ class IncidentTracker:
             inc["periods"] = [[a.isoformat(), b.isoformat()] for a, b in tr.incident.periods]
             return {"incident": inc, "t0": tr.t0.isoformat(),
                     "resolved_at": tr.resolved_at.isoformat() if tr.resolved_at else None}
-        return {k: enc(v) for k, v in self.state.items()}
+        out: dict[str, Any] = {k: enc(v) for k, v in self.state.items()}
+        live = {a: k for a, k in self.aliases.items() if k in self.state}  # forget aliases of forgotten incidents
+        if live:
+            out["_aliases"] = live
+        return out
 
     @classmethod
     def from_dict(cls, params: Params, data: dict[str, Any]) -> IncidentTracker:
@@ -105,4 +150,5 @@ class IncidentTracker:
             inc["periods"] = tuple((datetime.fromisoformat(a), datetime.fromisoformat(b)) for a, b in inc.get("periods", []))
             return Tracked(Incident(**inc), datetime.fromisoformat(d["t0"]),
                            datetime.fromisoformat(d["resolved_at"]) if d.get("resolved_at") else None)
-        return cls(params, {k: dec(v) for k, v in data.items()})
+        aliases = data.get("_aliases", {})
+        return cls(params, {k: dec(v) for k, v in data.items() if k != "_aliases"}, aliases)

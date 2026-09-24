@@ -73,6 +73,8 @@ VIA = re.compile(r"\s+\(?via\s+(?P<via>[^)]+?)\)?$", re.I)  # "Hainault via Newb
 # "Use DISTRICT LINE trains between…" is travel advice about another line, not a closed section.
 ADVICE_SENTENCE = re.compile(r"^\s*use\b", re.I)
 TIME_SPAN = re.compile(r"^\s*\d{1,2}[:.]?\d{2}\s+and\s+\d{1,2}[:.]?\d{2}\s*$")
+# "…Whitechapel eastbound only" / "…clockwise": direction qualifiers, not part of a station name.
+DIRECTION_SUFFIX = re.compile(r"[\s,]+(?:(?:east|west|north|south)bound|(?:anti[- ]?)?clockwise)(?:\s+only)?\s*$", re.I)
 NO_SERVICE_CONTEXT = re.compile(r"\b(?:no (?:train )?service|suspended|closed|no trains)\s+(?:\w+\s+){0,2}$", re.I)
 
 
@@ -197,20 +199,22 @@ def expand_clause(span: str, line_id: str, network: Network, index: dict[str, tu
     Station names can themselves contain 'and' ("Elephant and Castle"), so every ' and '
     split is tried and the first where both sides resolve is used.
     """
-    words = span.split(" and ")
-    for i in range(1, len(words)):
-        left, right = " and ".join(words[:i]), " and ".join(words[i:])
-        a_ends, b_ends = _endpoints(left, index), _endpoints(right, index)
-        if a_ends is None or b_ends is None:
-            continue
-        covered: set[str] = set()
-        for a_ids, a_via in a_ends:
-            for b_ids, b_via in b_ends:
-                path = _shortest_path(network, line_id, a_ids, b_ids, a_via | b_via)
-                if path is None:
-                    return None
-                covered |= path
-        return covered
+    span = DIRECTION_SUFFIX.sub("", span)
+    for sep in (" and ", " to "):  # TfL occasionally writes "between Earl's Court to Ealing Broadway"
+        words = span.split(sep)
+        for i in range(1, len(words)):
+            left, right = sep.join(words[:i]), sep.join(words[i:])
+            a_ends, b_ends = _endpoints(left, index), _endpoints(right, index)
+            if a_ends is None or b_ends is None:
+                continue
+            covered: set[str] = set()
+            for a_ids, a_via in a_ends:
+                for b_ids, b_via in b_ends:
+                    path = _shortest_path(network, line_id, a_ids, b_ids, a_via | b_via)
+                    if path is None:
+                        return None
+                    covered |= path
+            return covered
     return None
 
 

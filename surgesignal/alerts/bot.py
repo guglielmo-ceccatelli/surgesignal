@@ -133,7 +133,7 @@ class Bot:
         s = self._settings()
         lines = [s.describe(), ""]
         tracker = self.store.get_state("tracker") or {}
-        active = [v["incident"] for v in tracker.values() if not v.get("resolved_at")]
+        active = [v["incident"] for k, v in tracker.items() if k != "_aliases" and not v.get("resolved_at")]
         if active:
             lines.append("Disruptions now:")
             for inc in sorted(active, key=lambda i: i["line_name"]):

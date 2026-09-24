@@ -104,3 +104,53 @@ def test_real_tfl_json_to_ranked_hotspots(params):
     assert by_name["Leytonstone"].uplift.mid == pytest.approx(0.03 * 1.3)  # minor, unplanned, in section
     assert by_name["Leytonstone"].explanation == "Central line minor delays (unplanned)"
     assert by_name["Leytonstone"].uplift.mid < params.alert_threshold_uplift  # minor delays: no alert
+
+
+# ---- continuation: TfL rewording a section is not a new incident -------------------------
+
+
+def inc_on(key, stations, line="district"):
+    return Incident(key, line, "District", "severe", 6, True, tuple(stations))
+
+
+WIMBLEDON_BRANCH = ("EC", "WB", "FB", "PG", "PB", "EP", "SF", "WP", "WI")
+
+
+def test_reworded_overlapping_section_continues_the_incident(params):
+    tr = IncidentTracker(params)
+    tr.update([inc_on("district:a", WIMBLEDON_BRANCH)], at(0))
+    (d,) = [d for d in tr.update([inc_on("district:b", WIMBLEDON_BRANCH[:6])], at(5)) if d.resolved_at is None]
+    assert d.key == "district:a" and d.t0 == at(0)  # same incident, original start
+
+
+def test_unrelated_section_on_same_line_is_a_new_incident(params):
+    tr = IncidentTracker(params)
+    tr.update([inc_on("district:a", WIMBLEDON_BRANCH)], at(0))
+    ds = tr.update([inc_on("district:a", WIMBLEDON_BRANCH), inc_on("district:c", ("EM", "TE", "WC"))], at(5))
+    assert {d.key for d in ds} == {"district:a", "district:c"}
+
+
+def test_other_line_never_continues(params):
+    tr = IncidentTracker(params)
+    tr.update([inc_on("district:a", WIMBLEDON_BRANCH)], at(0))
+    ds = tr.update([inc_on("piccadilly:x", WIMBLEDON_BRANCH, line="piccadilly")], at(5))
+    assert "piccadilly:x" in {d.key for d in ds}
+
+
+def test_two_sections_cannot_both_claim_one_incident(params):
+    tr = IncidentTracker(params)
+    tr.update([inc_on("district:a", WIMBLEDON_BRANCH)], at(0))
+    ds = tr.update([inc_on("district:b", WIMBLEDON_BRANCH[:5]), inc_on("district:c", WIMBLEDON_BRANCH[4:])], at(5))
+    keys = sorted(d.key for d in ds if d.resolved_at is None)
+    assert keys == ["district:a", "district:c"]
+
+
+def test_alias_survives_restart_and_is_forgotten_with_its_incident(params):
+    tr = IncidentTracker(params)
+    tr.update([inc_on("district:a", WIMBLEDON_BRANCH)], at(0))
+    tr.update([inc_on("district:b", WIMBLEDON_BRANCH)], at(1))
+    restored = IncidentTracker.from_dict(params, json.loads(json.dumps(tr.to_dict())))
+    assert restored.aliases == {"district:b": "district:a"}
+    restored.update([], at(2))
+    restored.update([], at(2 + 95))  # resolved then past retention: forgotten
+    assert "_aliases" not in restored.to_dict()
