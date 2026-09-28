@@ -22,11 +22,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from surgesignal.alerts.lifecycle import SendNew
 from surgesignal.alerts.settings import Settings
 from surgesignal.config import Config
 from surgesignal.engine.params import Params
 from surgesignal.store.state import FileStore
 from surgesignal.tfl.network import Network
+from surgesignal.tfl.tracker import IncidentTracker
 
 DISPATCHER, BUILDER = 1, 2
 
@@ -63,6 +65,9 @@ class Event:
     at: datetime
     kind: str  # "new" | "edit" | "resolved" | "problem" | "error"
     text: str
+    # "new" only: what the alert named, per incident key (for the backtest, T11)
+    top_ids: dict[str, tuple[str, ...]] = field(default_factory=dict, compare=False)
+    sections: dict[str, tuple[str, ...]] = field(default_factory=dict, compare=False)
 
 
 @dataclass
@@ -116,13 +121,19 @@ def replay(snapshots: Sequence[tuple[datetime, bytes]], network: Network, params
                 restarts.pop(0)
                 alerter = Alerter(cfg, store, tg, network, params, fetch=lambda url: current["payload"])
             n_sent, n_edits = len(tg.sent), len(tg.edits)
+            actions = []
             try:
-                alerter.tick(t)
+                actions = alerter.tick(t)
             except Exception as exc:  # the live loop reports and carries on; so does the replay
                 result.events.append(Event(t, "error", repr(exc)))
+            news = {a.text: a for a in actions if isinstance(a, SendNew)}  # by text: a look-ahead may go out first
+            sections = {d.key: d.affected_station_ids for d in
+                        IncidentTracker.from_dict(params, store.get_state("tracker") or {}).disruptions()}
             for m in tg.sent[n_sent:]:
                 kind = "problem" if m["chat"] == BUILDER else ("resolved" if m["reply_to"] else "new")
-                result.events.append(Event(t, kind, m["text"]))
+                a = news.get(m["text"]) if kind == "new" else None
+                result.events.append(Event(t, kind, m["text"], dict(a.top_ids) if a else {},
+                                           {k: sections.get(k, ()) for k in a.keys} if a else {}))
             for e in tg.edits[n_edits:]:
                 result.events.append(Event(t, "edit", e["text"]))
             result.ticks += 1

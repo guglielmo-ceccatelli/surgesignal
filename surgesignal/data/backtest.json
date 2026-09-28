@@ -1,0 +1,78 @@
+{
+ "measured": 6,
+ "events": 10,
+ "rules": [
+  {
+   "rule": "engine",
+   "n": 6,
+   "mean": 3.883333333333333,
+   "low": -1.8555555555555558,
+   "high": 9.952777777777778
+  },
+  {
+   "rule": "closed",
+   "n": 6,
+   "mean": 2.6368686868686866,
+   "low": -1.9555555555555557,
+   "high": 7.512626262626263
+  },
+  {
+   "rule": "busiest",
+   "n": 6,
+   "mean": 8.614814814814816,
+   "low": -1.1851851851851851,
+   "high": 21.41111111111111
+  }
+ ],
+ "engine_beats": {
+  "closed": 4,
+  "busiest": 3
+ },
+ "per_event": [
+  {
+   "at": "2026-09-23T20:28:15+00:00",
+   "label": "Hammersmith & City line part suspended, Wed 23 Sep 21:28",
+   "engine": -2.6,
+   "closed": -1.8,
+   "busiest": -3.733333333333333
+  },
+  {
+   "at": "2026-09-24T07:49:08+00:00",
+   "label": "Central line part suspended, Thu 24 Sep 08:49",
+   "engine": 21.583333333333332,
+   "closed": 14.5,
+   "busiest": 43.5
+  },
+  {
+   "at": "2026-09-26T14:24:09+00:00",
+   "label": "Northern line severe delays, Sat 26 Sep 15:24",
+   "engine": 9.666666666666666,
+   "closed": 9.454545454545455,
+   "busiest": 15.555555555555557
+  },
+  {
+   "at": "2026-09-27T10:27:38+00:00",
+   "label": "Central line severe delays, Sun 27 Sep 11:27",
+   "engine": -2.35,
+   "closed": -1.8666666666666671,
+   "busiest": -5.533333333333334
+  },
+  {
+   "at": "2026-09-28T10:49:49+00:00",
+   "label": "Northern line part suspended, Mon 28 Sep 11:49",
+   "engine": -2.6666666666666665,
+   "closed": -3.5,
+   "busiest": 5.833333333333333
+  },
+  {
+   "at": "2026-09-28T12:40:25+00:00",
+   "label": "District line severe delays, Mon 28 Sep 13:40",
+   "engine": -0.33333333333333365,
+   "closed": -0.9666666666666667,
+   "busiest": -3.9333333333333336
+  }
+ ],
+ "as_of": "2026-09-28",
+ "target": 20,
+ "area": "7 km around Charing Cross"
+}

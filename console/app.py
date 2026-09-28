@@ -23,6 +23,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))  # Streamlit runs this file as a script
 
 from console.components import CSS, action_card, badge, banner, figure_strip, hero, phone_alert, steps, wordmark  # noqa: E402
+from console.charts import backtest_chart  # noqa: E402
 from console.maps import single_map, small_multiples  # noqa: E402
 from surgesignal.alerts.format import LONDON  # noqa: E402
 from surgesignal.console import (  # noqa: E402
@@ -50,6 +51,7 @@ from surgesignal.tfl.network import load_network  # noqa: E402
 DATA = Path(os.environ.get("SURGESIGNAL_DATA", REPO / "data"))  # override: tests render the public copy (no data)
 STATE_DIR, HEARTBEAT = DATA / "state", DATA / "alerter_heartbeat.json"
 EVIDENCE_FILE = REPO / "surgesignal" / "data" / "evidence.json"
+BACKTEST_FILE = REPO / "surgesignal" / "data" / "backtest.json"
 REPLAY = ("district-2026-09-23", "district", "Putney Bridge", 5.0, 6)
 STEPS = [f"+{m} min" for m in RIPPLE_STEPS]
 BACKTEST_TARGET = 20
@@ -127,10 +129,12 @@ st.caption("Predicts disruption-linked demand risk relative to a normal day, not
            "ride-level data. EVIDENCE has a source; ESTIMATE is an assumption shown so you can judge it.")
 
 # Lazy tabs: only the open tab runs, so the page never holds more than one tab's maps (WebGL
-# contexts are limited per page). A ?scenario= link opens straight onto Try a disruption.
+# contexts are limited per page). ?tab=evidence opens a tab directly (links in the write-up);
+# a ?scenario= link opens straight onto Try a disruption.
 TABS = ["Overview", "Try a disruption", "The economics", "How it works", "Evidence", "Live"]
-overview, trial, econ, how, evidence, live = st.tabs(
-    TABS, key="tab", on_change="rerun", default="Try a disruption" if "scenario" in st.query_params else "Overview")
+TAB_SLUGS = dict(zip(["overview", "try", "economics", "how", "evidence", "live"], TABS))
+default_tab = TAB_SLUGS.get(st.query_params.get("tab", ""), "Try a disruption" if "scenario" in st.query_params else "Overview")
+overview, trial, econ, how, evidence, live = st.tabs(TABS, key="tab", on_change="rerun", default=default_tab)
 
 # ---- Overview: a real recorded disruption ------------------------------------------------
 
@@ -308,15 +312,34 @@ with evidence:
                        "moves as logs grow. The economics tab starts from the lowest area.")
         else:
             st.caption("Not counted yet: run scripts/evidence_status.py on the logging machine.")
-        n = ev["london_alerts"] if ev else 0
         st.subheader("Does it beat common sense?")
-        st.markdown("The backtest compares SurgeSignal's top 3 stations with two simple rules, **\"the closed stations\"** and "
-                    "**\"the busiest stations\"**, measured on where Santander bikes actually moved after each disruption, "
-                    "against the same stations at normal times. It is reported whichever way it comes out.")
-        st.progress(min(n / BACKTEST_TARGET, 1.0),
-                    text=f"{n} of {BACKTEST_TARGET} alert-worthy disruptions logged" + (f" (as of {ev['as_of']})" if ev else ""))
-        st.caption("Bike docks are logged every 5 minutes while the logging machine is awake. Results appear here once "
-                   "the target is reached.")
+        st.markdown("London has no public ride data, so the test uses Santander bikes: when the Tube fails, stranded riders "
+                    "take and drop bikes near where they are. For every alert-worthy disruption in central London, the "
+                    "backtest compares the stations SurgeSignal named with two simple rules, **\"the closed stations\"** "
+                    "and **\"the area's busiest stations\"**, by bike activity at docks within 400 m over the next 30 minutes, "
+                    "against the same docks at the same time on other days. It is reported whichever way it comes out.")
+        bt = load_evidence(BACKTEST_FILE)
+        measured = bt["measured"] if bt else 0
+        target = bt["target"] if bt else BACKTEST_TARGET
+        if bt and bt.get("rules"):
+            final = measured >= target
+            st.html(f'<p class="ss ss-note">{badge("evidence" if final else "estimate", "Result" if final else "Provisional")} '
+                    f'{measured} disruptions measured, target {target}. Dots: each disruption. Line: 90% interval of the mean.</p>')
+            st.plotly_chart(backtest_chart(bt), width="stretch", config={"displayModeBar": False}, key="backtest")
+            beats = bt["engine_beats"]
+            st.markdown(f"SurgeSignal's stations saw more bike activity than the closed stations in **{beats['closed']} of "
+                        f"{measured}** disruptions, and more than the busiest stations in **{beats['busiest']} of {measured}**. "
+                        + ("Every interval still crosses zero: too few disruptions to call it either way yet."
+                           if any(r["low"] < 0 < r["high"] for r in bt["rules"]) else ""))
+            with st.expander("Every disruption measured"):
+                st.dataframe(pd.DataFrame([{"Disruption": e["label"], "SurgeSignal": e["engine"], "Closed stations": e["closed"],
+                                            "Busiest stations": e["busiest"]} for e in bt["per_event"]]).round(1),
+                             hide_index=True, width="stretch")
+            st.caption(f"{bt['events'] - measured} more alert-worthy disruptions happened while the logging laptop "
+                       f"slept within 30 minutes, so their bikes weren't recorded. As of {bt['as_of']}; {bt['area']}.")
+        else:
+            st.progress(min(measured / target, 1.0), text=f"{measured} of {target} disruptions measured")
+            st.caption("Not run yet: scripts/backtest.py on the logging machine.")
         if STATE_DIR.exists():
             checkins = FileStore(STATE_DIR).checkins_since(datetime.now(timezone.utc) - timedelta(days=30))
             st.subheader("Driver check-ins")
