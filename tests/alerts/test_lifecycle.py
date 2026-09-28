@@ -3,7 +3,7 @@ from datetime import datetime, time, timedelta, timezone
 
 from surgesignal.alerts import lifecycle
 from surgesignal.alerts.lifecycle import AlertRecord, EditExisting, SendNew, SendResolved, decide, in_quiet_hours
-from tests.alerts.conftest import NOW, make_ctx, northern
+from tests.alerts.conftest import MORDEN_BRANCH, NOW, make_ctx, northern
 
 
 def run_once(net, params, disruptions, records, now=NOW, **ctx_kw):
@@ -83,6 +83,49 @@ def test_simultaneous_new_incidents_share_one_message(net, params):
     # escalating one re-renders the whole shared message
     (e,) = run_once(net, params, [northern(severity_class="severe"), victoria], records, now=NOW + timedelta(minutes=1))
     assert isinstance(e, EditExisting) and set(e.keys) == {"northern:morden", "victoria:bxn"}
+
+
+def test_new_section_on_an_alerted_line_joins_its_message(net, params):
+    """TfL moving or rewording a section is one problem to a dispatcher: edit, don't send again."""
+    records = sent(run_once(net, params, [northern()], {}), {})
+    moved = northern(key="northern:clapham", affected_station_ids=MORDEN_BRANCH[:4], t0=NOW)
+    (e,) = run_once(net, params, [northern(), moved], records, now=NOW + timedelta(minutes=2))
+    assert isinstance(e, EditExisting) and e.message_id == 500
+    assert set(e.keys) == {"northern:morden", "northern:clapham"}
+    records = sent([e], records, now=NOW + timedelta(minutes=2))
+    assert records["northern:clapham"].message_id == 500 and records["northern:clapham"].state == "active"
+    assert set(records["northern:morden"].group) == {"northern:morden", "northern:clapham"}
+
+
+def test_one_all_clear_when_the_last_section_clears(net, params):
+    records = sent(run_once(net, params, [northern()], {}), {})
+    moved = northern(key="northern:clapham", affected_station_ids=MORDEN_BRANCH[:4], t0=NOW)
+    records = sent(run_once(net, params, [northern(), moved], records, now=NOW + timedelta(minutes=2)), records,
+                   now=NOW + timedelta(minutes=2))
+    # the first section clears while the second is still on: recorded, but nothing sent
+    later = NOW + timedelta(minutes=40)
+    (a,) = [x for x in run_once(net, params, [northern(resolved_at=NOW), moved], records, now=later)
+            if isinstance(x, SendResolved)]
+    assert a.key == "northern:morden" and a.silent
+    records = sent([a], records, now=later)
+    # then the second clears: one all-clear, replying to the shared message
+    (b,) = run_once(net, params, [replace(moved, resolved_at=later)], records,
+                    now=later + timedelta(minutes=30))
+    assert isinstance(b, SendResolved) and not b.silent and b.reply_to == 500
+
+
+def test_sections_clearing_together_send_one_all_clear(net, params):
+    victoria = northern(key="victoria:bxn", line="victoria", line_name="Victoria",
+                        affected_station_ids=("940GZZLUBXN", "940GZZLUSKW"))
+    records = sent(run_once(net, params, [northern(), victoria], {}), {})
+    actions = run_once(net, params, [], records, now=NOW + timedelta(hours=3))
+    assert sorted(a.silent for a in actions) == [False, True]
+
+
+def test_planned_works_never_alert_live(net, params):
+    """The evening look-ahead announces them; a planned suspension scores exactly the threshold."""
+    assert run_once(net, params, [northern(is_unplanned=False)], {}) == []
+    assert run_once(net, params, [northern(key="northern:all", is_unplanned=False, line_wide=True, affected_station_ids=())], {}) == []
 
 
 def test_line_wide_severe_in_area_alerts_without_stations(net, params):

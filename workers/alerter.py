@@ -179,6 +179,8 @@ class Alerter:
             if action.message_id is not None:
                 self.tg.edit(chat, action.message_id, action.text)
             return action.message_id
+        if action.silent:
+            return None
         return self.tg.send(chat, action.text, reply_to=action.reply_to)
 
     def _save_records(self, records: dict[str, AlertRecord]) -> None:

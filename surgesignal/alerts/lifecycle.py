@@ -8,14 +8,22 @@ executes the actions against Telegram and persists the records, so a restart cha
 
       (none) ──qualifies──► NEW ─────────────────────────────► active
                                                                 │
+      (none) ──qualifies, its line already alerted──► EDIT (joins that message)
       active ──severity class changed (immediately)──► EDIT ────┤
       active ──top stations changed, cooldown passed──► EDIT ───┤
       active ──resolved for ≥ merge window───────────► RESOLVED ┴─► resolved
       resolved ──comes back after the merge window──► NEW (new incident, new t0)
 
-    qualifies: a top in-area station has disruption uplift ≥ alert_threshold_uplift, or, for a
-    line-wide incident, the base severity alone clears the threshold and the line serves the area.
-    Several NEW keys in one tick share one message (a line reported in two sections, say).
+    qualifies: unplanned, and a top in-area station has disruption uplift ≥ alert_threshold_uplift,
+    or, for a line-wide incident, the base severity alone clears the threshold and the line serves
+    the area. Planned works never alert live: the evening look-ahead (lookahead.py) announces them
+    the day before, when a dispatcher can still plan staff. (A planned closure scored exactly the
+    threshold, 0.25 × 0.6, so every weekend's engineering works alerted on the day.)
+    Several NEW keys in one tick share one message (a line reported in two sections, say), and a
+    new section on a line whose alert is still active joins that message rather than sending
+    another: TfL rewording or moving a section is one problem to a dispatcher, not three (the
+    23 Sep District line evening sent three alerts before this). The all-clear goes out once,
+    when the last section of a message clears.
     Quiet hours hold every send; nothing is marked sent, so it goes out when they end.
 """
 
@@ -75,6 +83,7 @@ class SendResolved:
     key: str
     reply_to: int | None
     text: str
+    silent: bool = False  # another section of the same message is still active: record only, send nothing
 
 
 Action = SendNew | EditExisting | SendResolved
@@ -106,6 +115,8 @@ def top_stations(d: Disruption, ctx: Context, p: Params) -> list[Hotspot]:
 
 
 def qualifies(d: Disruption, ctx: Context, p: Params) -> bool:
+    if not d.is_unplanned:
+        return False
     if d.line_wide:
         base = p.severity(d.severity_class) * (p.unplanned_multiplier if d.is_unplanned else p.planned_multiplier)
         return base >= p.alert_threshold_uplift and bool(ctx.line_stations.get(d.line, frozenset()) & ctx.stations_in_area)
@@ -136,6 +147,25 @@ def decide(disruptions: Sequence[Disruption], records: Mapping[str, AlertRecord]
 
     # NEW: qualifying incidents never alerted, or alerted and since resolved (a fresh incident)
     fresh = [d for d in active if (d.key not in records or records[d.key].state == "resolved") and qualifies(d, ctx, p)]
+    alerted_line = {}  # line -> the active record of a still-active incident on it
+    for d in active:
+        rec = records.get(d.key)
+        if rec is not None and rec.state == "active":
+            alerted_line.setdefault(d.line, rec)
+    joining = [d for d in fresh if d.line in alerted_line]
+    fresh = [d for d in fresh if d.line not in alerted_line]
+    edited_messages: set[int | None] = set()
+    for rec in {alerted_line[d.line].message_id: alerted_line[d.line] for d in joining}.values():
+        members = [by_key[k] for k in rec.group if k in by_key and by_key[k].resolved_at is None]
+        group = members + [d for d in joining if alerted_line[d.line].message_id == rec.message_id]
+        actions.append(EditExisting(
+            message_id=rec.message_id,
+            keys=tuple(g.key for g in group),
+            text=render(group, ctx, now, p),
+            top_ids={g.key: tops(g) for g in group},
+            severity={g.key: g.severity_class for g in group},
+        ))
+        edited_messages.add(rec.message_id)
     if fresh:
         actions.append(SendNew(
             keys=tuple(d.key for d in fresh),
@@ -145,7 +175,6 @@ def decide(disruptions: Sequence[Disruption], records: Mapping[str, AlertRecord]
         ))
 
     # EDIT: re-render the whole group message when any member changed enough
-    edited_messages: set[int | None] = set()
     for d in active:
         rec = records.get(d.key)
         if rec is None or rec.state != "active" or rec.message_id in edited_messages:
@@ -163,16 +192,24 @@ def decide(disruptions: Sequence[Disruption], records: Mapping[str, AlertRecord]
             ))
             edited_messages.add(rec.message_id)
 
-    # RESOLVED: only after the merge window, so a flapping status doesn't send "all clear" then "new"
+    # RESOLVED: only after the merge window, so a flapping status doesn't send "all clear" then "new";
+    # one all-clear per message, when its last section has cleared
+    def gone(key: str) -> bool:
+        d = by_key.get(key)
+        return d is None or (d.resolved_at is not None and now - d.resolved_at >= cooldown)
+
+    cleared: set[int | None] = set()
     for key, rec in records.items():
-        if rec.state != "active":
+        if rec.state != "active" or not gone(key):
             continue
         d = by_key.get(key)
-        gone_long_enough = d is None or (d.resolved_at is not None and now - d.resolved_at >= cooldown)
-        if gone_long_enough:
-            since = f", since {london_hhmm(d.resolved_at)}" if d is not None and d.resolved_at else ""
-            line_name = d.line_name if d is not None else key.split(":")[0].replace("-", " ").title()
-            actions.append(SendResolved(key, rec.message_id, f"✅ {line_label(line_name)}: back to good service{since}."))
+        since = f", since {london_hhmm(d.resolved_at)}" if d is not None and d.resolved_at else ""
+        line_name = d.line_name if d is not None else key.split(":")[0].replace("-", " ").title()
+        still_on = any(k != key and k in records and records[k].state == "active" and not gone(k) for k in rec.group)
+        silent = still_on or rec.message_id in cleared
+        actions.append(SendResolved(key, rec.message_id, f"✅ {line_label(line_name)}: back to good service{since}.", silent))
+        if not silent:
+            cleared.add(rec.message_id)
     return actions
 
 
@@ -184,7 +221,13 @@ def apply(records: Mapping[str, AlertRecord], action: Action, message_id: int | 
             out[key] = AlertRecord(key, action.keys, message_id, "active", action.severity[key], action.top_ids[key], now)
     elif isinstance(action, EditExisting):
         for key in action.keys:
-            out[key] = replace(out[key], severity_class=action.severity[key], top_ids=action.top_ids[key], last_sent_at=now)
+            if key in out and out[key].state == "active":
+                group = tuple(dict.fromkeys(out[key].group + action.keys))
+                out[key] = replace(out[key], group=group, severity_class=action.severity[key],
+                                   top_ids=action.top_ids[key], last_sent_at=now)
+            else:  # a section joining an existing message
+                out[key] = AlertRecord(key, action.keys, action.message_id, "active", action.severity[key],
+                                       action.top_ids[key], now)
     elif isinstance(action, SendResolved):
         out[action.key] = replace(out[action.key], state="resolved", last_sent_at=now)
     return out

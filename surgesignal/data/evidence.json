@@ -1,0 +1,46 @@
+{
+ "as_of": "2026-09-28",
+ "first": "2026-09-23T15:46:16+00:00",
+ "last": "2026-09-28T14:46:09+00:00",
+ "covered_hours": 27.0,
+ "open_hours": 27.0,
+ "london_alerts": 15,
+ "areas": [
+  {
+   "label": "Clapham Common",
+   "radius_km": 5.0,
+   "alerts": 5,
+   "per_week": 23.3,
+   "info": 5
+  },
+  {
+   "label": "Stratford (London)",
+   "radius_km": 5.0,
+   "alerts": 6,
+   "per_week": 28.0,
+   "info": 5
+  },
+  {
+   "label": "Putney Bridge",
+   "radius_km": 5.0,
+   "alerts": 3,
+   "per_week": 14.0,
+   "info": 4
+  },
+  {
+   "label": "King's Cross St. Pancras",
+   "radius_km": 5.0,
+   "alerts": 10,
+   "per_week": 46.6,
+   "info": 7
+  },
+  {
+   "label": "Ealing Broadway",
+   "radius_km": 5.0,
+   "alerts": 3,
+   "per_week": 14.0,
+   "info": 3
+  }
+ ],
+ "typical_per_week": 23.3
+}

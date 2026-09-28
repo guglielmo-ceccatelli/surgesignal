@@ -284,25 +284,6 @@ def live_view(store: Store, network: Network, params: Params, baseline: Baseline
     return LiveView(settings, disruptions, rows, checkins, rp, checked_at, stale, recent)
 
 
-# ---- Evidence --------------------------------------------------------------------------
-
-
-def qualifying_incidents(status_dir: Path, network: Network, params: Params) -> int:
-    """Distinct unplanned incidents in the logs strong enough to alert on (≥ the threshold at
-    the section itself). The backtest (T11) needs about 20."""
-    keys: set[str] = set()
-    for _, raw in load_snapshots(status_dir):
-        try:
-            incidents = parse_status(json.loads(raw), network).incidents
-        except ValueError:
-            continue
-        for i in incidents:
-            base = params.severity(i.severity_class) * params.unplanned_multiplier * i.severity_scale
-            if i.is_unplanned and not i.line_wide and base >= params.alert_threshold_uplift:
-                keys.add(i.key)
-    return len(keys)
-
-
 def params_rows() -> list[dict[str, Any]]:
     """params.yaml with DESIGN.md's badge vocabulary: assumption → ESTIMATE."""
     kind = {"assumption": "ESTIMATE", "design choice": "DESIGN CHOICE"}

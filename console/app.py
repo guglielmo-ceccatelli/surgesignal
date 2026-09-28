@@ -33,13 +33,13 @@ from surgesignal.console import (  # noqa: E402
     live_view,
     ordered_stations,
     params_rows,
-    qualifying_incidents,
     replay_story,
     run_preset,
     station_by_name,
     whatif,
 )
-from surgesignal.economics import DEFAULTS, EconInputs, evaluate  # noqa: E402
+from surgesignal.economics import EconInputs, evaluate, with_evidence  # noqa: E402
+from surgesignal.evidence import load_evidence  # noqa: E402
 from surgesignal.engine.explain import SEVERITY_WORDS, line_label  # noqa: E402
 from surgesignal.engine.params import load_params  # noqa: E402
 from surgesignal.engine.types import ServiceArea  # noqa: E402
@@ -48,7 +48,7 @@ from surgesignal.store.state import FileStore  # noqa: E402
 from surgesignal.tfl.network import load_network  # noqa: E402
 
 DATA = Path(os.environ.get("SURGESIGNAL_DATA", REPO / "data"))  # override: tests render the public copy (no data)
-STATE_DIR, STATUS_DIR, HEARTBEAT = DATA / "state", DATA / "raw" / "status", DATA / "alerter_heartbeat.json"
+STATE_DIR, HEARTBEAT = DATA / "state", DATA / "alerter_heartbeat.json"
 EVIDENCE_FILE = REPO / "surgesignal" / "data" / "evidence.json"
 REPLAY = ("district-2026-09-23", "district", "Putney Bridge", 5.0, 6)
 STEPS = [f"+{m} min" for m in RIPPLE_STEPS]
@@ -88,13 +88,9 @@ def custom_ripple(line_id, a, b, severity, unplanned, start_iso, rain, centre, r
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def logged_count() -> tuple[int, str]:
-    if STATUS_DIR.exists():
-        return qualifying_incidents(STATUS_DIR, network, params), "counted live from this machine's logs"
-    if EVIDENCE_FILE.exists():
-        e = json.loads(EVIDENCE_FILE.read_text())
-        return int(e["qualifying"]), f"as of {e['as_of']}, from the logging machine"
-    return 0, "no logs on this server"
+def evidence_counts() -> dict | None:
+    """The week-one count (scripts/evidence_status.py), committed so the public copy has it too."""
+    return load_evidence(EVIDENCE_FILE)
 
 
 def ripple_block(rp, key: str, alert_time: str = "") -> None:
@@ -230,7 +226,7 @@ with econ:
         st.caption("Change any input. Defaults marked ESTIMATE are placeholders until a real operator's figures replace them.")
         vals = {}
         cols = st.columns(2, gap="large")
-        for i, (key, inp) in enumerate(DEFAULTS.items()):
+        for i, (key, inp) in enumerate(with_evidence(evidence_counts()).items()):
             with cols[i % 2]:
                 vals[key] = st.number_input(f"{inp.label} ({inp.unit})" if inp.unit else inp.label, min_value=0.0,
                                             value=float(inp.value), step=0.1 if key.startswith("surge") else 1.0, key=f"econ-{key}")
@@ -296,14 +292,31 @@ with how:
 
 with evidence:
     if evidence.open:
-        n, where = logged_count()
+        ev = evidence_counts()
+        st.subheader("How often would a dispatcher hear from it?")
+        if ev and ev.get("areas"):
+            rates = [a["per_week"] for a in ev["areas"]]
+            first, last = (datetime.fromisoformat(ev[k]).astimezone(LONDON) for k in ("first", "last"))
+            st.markdown(f"Replaying the real alerter over **{ev['open_hours']:g} hours** of logged TfL status "
+                        f"({first:%d %b}–{last:%d %b}, 06:00–midnight), a firm covering 5 km would get "
+                        f"**{min(rates):g}–{max(rates):g} alerts a week** that suggest moving cars, depending on where it is "
+                        f"(median {ev['typical_per_week']:g}). Line-wide notices, where TfL names no section, come on top.")
+            st.dataframe(pd.DataFrame([{"Area (5 km around)": a["label"], "Alerts": a["alerts"], "Per week": a["per_week"],
+                                        "Line-wide notices": a["info"]} for a in ev["areas"]]),
+                         hide_index=True, width="content")
+            st.caption("The logging laptop was awake for only part of the week, so the rate comes from a small sample and "
+                       "moves as logs grow. The economics tab starts from the lowest area.")
+        else:
+            st.caption("Not counted yet: run scripts/evidence_status.py on the logging machine.")
+        n = ev["london_alerts"] if ev else 0
         st.subheader("Does it beat common sense?")
         st.markdown("The backtest compares SurgeSignal's top 3 stations with two simple rules, **\"the closed stations\"** and "
                     "**\"the busiest stations\"**, measured on where Santander bikes actually moved after each disruption, "
                     "against the same stations at normal times. It is reported whichever way it comes out.")
-        st.progress(min(n / BACKTEST_TARGET, 1.0), text=f"{n} of {BACKTEST_TARGET} qualifying disruptions logged ({where})")
-        st.caption("Data is collected every 5 minutes in the cloud (TfL status, disruptions, bike docks per station), "
-                   "independent of any one machine. Results appear here once the target is reached.")
+        st.progress(min(n / BACKTEST_TARGET, 1.0),
+                    text=f"{n} of {BACKTEST_TARGET} alert-worthy disruptions logged" + (f" (as of {ev['as_of']})" if ev else ""))
+        st.caption("Bike docks are logged every 5 minutes while the logging machine is awake. Results appear here once "
+                   "the target is reached.")
         if STATE_DIR.exists():
             checkins = FileStore(STATE_DIR).checkins_since(datetime.now(timezone.utc) - timedelta(days=30))
             st.subheader("Driver check-ins")

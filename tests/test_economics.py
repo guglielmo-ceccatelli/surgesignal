@@ -24,3 +24,13 @@ def test_invalid_inputs(kw):
 
 def test_pickup_gain_never_negative():
     assert evaluate(EconInputs(pickup_placed_min=25, pickup_cold_min=20)).pickup_gain_min == 0
+
+
+def test_alerts_per_week_come_from_the_logs_when_counted():
+    from surgesignal.economics import with_evidence
+
+    ev = {"open_hours": 27.0, "typical_per_week": 23.3,
+          "areas": [{"per_week": 23.3}, {"per_week": 14.0}, {"per_week": 46.6}]}
+    d = with_evidence(ev)["alerts_per_week"]
+    assert d.value == 14.0 and d.kind == "EVIDENCE" and "14–46.6" in d.source
+    assert with_evidence(None)["alerts_per_week"].kind == "ESTIMATE"

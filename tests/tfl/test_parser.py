@@ -192,3 +192,19 @@ def test_following_clause_is_the_cause_not_the_place(net):
     inc, problems = one(net, status("northern", "Northern Line: Minor delays between Camden Town and Kennington following "
                                                 "a late finish of engineering work. GOOD SERVICE on the rest of the line.", code=9))
     assert problems == [] and {"Camden Town", "Euston", "Kennington"} <= set(names(net, inc))
+
+
+def test_two_sections_in_one_sentence(net):
+    """Real TfL text, 28 Sep: a second 'between' clause, with or without its own severity words.
+    Each section becomes its own incident."""
+    def stations(line, reason, code):
+        r = parse_status(status(line, reason, code=code), net)
+        assert r.problems == [] and len(r.incidents) == 2
+        return {net.stations[s].name for i in r.incidents for s in i.station_ids}
+
+    assert {"Moor Park", "Watford", "Chalfont & Latimer", "Amersham"} <= stations(
+        "metropolitan", "Metropolitan Line: Minor delays between Moor Park and Watford and between Chalfont & Latimer "
+                        "and Amersham due to train cancellations.", 9)
+    assert {"Wimbledon", "Southfields", "Earl's Court", "Putney Bridge"} <= stations(
+        "district", "District Line: No service between Wimbledon Park and Wimbledon and MINOR DELAYS between Earl's Court "
+                    "and Wimbledon Park while we fix a signal failure at Wimbledon. GOOD SERVICE on the rest of the line.", 6)

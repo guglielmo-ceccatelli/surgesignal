@@ -60,7 +60,8 @@ SEVERITY_RANK = {"minor": 0, "severe": 1, "part_suspended": 2, "suspended": 3}
 UNCERTAIN_SCALE = 0.5
 
 # A full stop ends a clause unless it's the "St." in St. Paul's / St. John's Wood / St. James's Park.
-_END = r"(?=\s+due to\b|\s+because\b|\s+while\b|\s+after\b|\s+following\b|\s+as a result of\b|,|;|(?<!\bst)\.(?:\s|$)|\s-\s|$)"
+# A clause also ends where the next one starts: "…and between C and D", "…and MINOR DELAYS between C and D".
+_END = r"(?=\s+and\s+(?:(?!and\b)[a-z]+\s+){0,3}between\b|\s+due to\b|\s+because\b|\s+while\b|\s+after\b|\s+following\b|\s+as a result of\b|,|;|(?<!\bst)\.(?:\s|$)|\s-\s|$)"
 BETWEEN = re.compile(r"\bbetween\s+(?P<span>.+?)" + _END, re.I)
 # "Service operating between A and B" names where trains still RUN: the opposite of the disruption.
 RUNNING_CONTEXT = re.compile(r"\b(?:operat(?:e|es|ing)|run(?:s|ning)?)\s+(?:\w+\s+){0,2}$", re.I)

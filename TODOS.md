@@ -14,6 +14,18 @@
 **Priority:** P3
 **Depends on:** Parser route-sequence expansion (outside voice #1)
 
+### Alert fatigue: how many alerts a week is too many?
+
+**What:** Decide, with an operator, the alert rate a dispatcher will actually act on, then tune to it: raise `alert_threshold_uplift`, cap alerts per day, or only alert in the firm's busy hours.
+
+**Why:** The T8 count (Sep 28) found 14–47 actionable alerts a week per 5 km area (median 23), plus line-wide notices. A dispatcher who gets three a day may start ignoring them, and then the one that matters is missed.
+
+**Context:** The count comes from 27 h of logs, so the rate is rough. Same-line repeats are already merged (one message per line per problem). The threshold (0.15) is an ESTIMATE; the backtest (T11) can show whether weaker alerts predict any bike movement at all, which is the data-side argument for raising it.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** Operator interviews; T11 results
+
 ## Console
 
 ### Live data on the public website (Supabase)
@@ -27,6 +39,20 @@
 **Effort:** M
 **Priority:** P2
 **Depends on:** A Supabase project (your account)
+
+## Data
+
+### Log the whole week, not just when the laptop is awake
+
+**What:** Run the logger somewhere that stays on: a free always-on host (a small VM, a Raspberry Pi, a friend's server), or keep the Mac awake with the lid open on power.
+
+**Why:** Sep 23–28 logged only ~27 h of 5 days. The GitHub Actions backup was meant to cover the rest but runs about every 4 h, not every 5 min (GitHub delays and drops scheduled workflows). The backtest (T11) needs bike data around each disruption, so every hour asleep is lost evidence.
+
+**Context:** `workers/logger.py` needs only Python and outbound HTTPS. The launchd setup is Mac-only; a systemd unit would be ~10 lines.
+
+**Effort:** S
+**Priority:** P1
+**Depends on:** Nothing
 
 ## Product
 

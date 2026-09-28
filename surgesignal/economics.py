@@ -13,7 +13,9 @@ before demand shows up in a firm's own bookings.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from collections.abc import Mapping
+from dataclasses import dataclass, fields, replace
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,20 @@ DEFAULTS: dict[str, Input] = {
     "jobs_per_alert": Input("Extra jobs won per alert", 3.0, "", "ESTIMATE",
                             "Assumption: a few riders priced out by the surge choose a nearby fixed-fare car."),
 }
+
+
+def with_evidence(evidence: Mapping[str, Any] | None) -> dict[str, Input]:
+    """DEFAULTS, with alerts per week measured from the logs (evidence.json, T8) once there is a
+    count. It takes the lowest of the sample areas, so the calculator starts conservative."""
+    areas = (evidence or {}).get("areas") or []
+    if not areas:
+        return dict(DEFAULTS)
+    rates = sorted(a["per_week"] for a in areas)
+    low = float(int(rates[0]))  # whole alerts, rounded down
+    source = (f"Lowest of {len(rates)} sample 5 km areas across London ({rates[0]:g}–{rates[-1]:g} a week, median "
+              f"{evidence.get('typical_per_week', rates[len(rates) // 2]):g}), replaying the real alerter over "
+              f"{evidence['open_hours']:g} h of TfL logs. A small sample: it firms up as the logs grow.")
+    return {**DEFAULTS, "alerts_per_week": replace(DEFAULTS["alerts_per_week"], value=low, kind="EVIDENCE", source=source)}
 
 
 @dataclass(frozen=True)
